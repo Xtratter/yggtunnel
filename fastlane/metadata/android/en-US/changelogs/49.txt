@@ -1,0 +1,1 @@
+- Connection log screen: only the log, newest first, by day, coloured; settings and diagnostics in their own dialogs

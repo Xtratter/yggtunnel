@@ -1,0 +1,44 @@
+Categories:
+  - Internet
+  - VPN & Proxy
+License: GPL-3.0-or-later
+AuthorName: Xtratter
+SourceCode: https://github.com/Xtratter/yggtunnel
+IssueTracker: https://github.com/Xtratter/yggtunnel/issues
+Changelog: https://github.com/Xtratter/yggtunnel/blob/HEAD/CHANGELOG.md
+
+AutoName: YggTunnel
+
+RepoType: git
+Repo: https://github.com/Xtratter/yggtunnel.git
+
+Builds:
+  - versionName: 0.10.4
+    versionCode: 25
+    commit: 5f1327c271c94ef0fce574f0b8705625b3d2a9f3
+    subdir: app
+    sudo:
+      - apt-get update
+      - apt-get install -y -t trixie-backports golang-go
+    gradle:
+      - yes
+    srclibs:
+      - go@go1.25.1
+    build:
+      - pushd $$go$$/src
+      - ./make.bash
+      - popd
+      - export GOROOT=$$go$$
+      - export PATH="$GOROOT/bin:$PATH"
+      - export GOPATH="$HOME/go"
+      - export GOTOOLCHAIN=local
+      - export ANDROID_NDK_HOME=$$NDK$$
+      - bash ../go/build.sh arm64-v8a armeabi-v7a x86_64
+    ndk: r27c
+    gradleprops:
+      - skipGo
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.10.4
+CurrentVersionCode: 25

@@ -1,0 +1,2 @@
+- Patched dependency documented; server setup checked against the live server
+- Texts tidied

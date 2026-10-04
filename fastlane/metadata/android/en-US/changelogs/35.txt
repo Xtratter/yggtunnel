@@ -1,0 +1,1 @@
+- QUIC is the preferred link to the server, TLS and wss are fallbacks

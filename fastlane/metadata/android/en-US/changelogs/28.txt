@@ -1,0 +1,2 @@
+- Edit a saved server (Servers → Edit)
+- The saved SSH key is never shown or copied; an empty field keeps it

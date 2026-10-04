@@ -1,0 +1,2 @@
+- Connection log: no false outages after reconnect or under load, notes when checks did not run
+- Diagnostics: lanes told apart

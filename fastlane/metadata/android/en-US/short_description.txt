@@ -1,0 +1,1 @@
+VPN to your own server over the Yggdrasil network — the app sets the server up

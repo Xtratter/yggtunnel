@@ -1,0 +1,4 @@
+- Fixed a crash on start in 0.10
+- A crash is shown on the next start with Copy
+- Tile: long-press opens the app, the status in the tile title
+- Peers: how long each link has been up

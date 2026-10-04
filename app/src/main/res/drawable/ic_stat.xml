@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- status bar / tile icon: the three-node mesh from the launcher icon, single colour -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.8" android:strokeLineCap="round"
+        android:pathData="M12,6.5 L7,15.5 M12,6.5 L17,15.5 M7,15.5 L17,15.5" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M12,3 a3,3 0 1,1 0,6 a3,3 0 1,1 0,-6z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M7,13 a2.6,2.6 0 1,1 0,5.2 a2.6,2.6 0 1,1 0,-5.2z M17,13 a2.6,2.6 0 1,1 0,5.2 a2.6,2.6 0 1,1 0,-5.2z" />
+</vector>

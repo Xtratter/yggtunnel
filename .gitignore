@@ -1,0 +1,7 @@
+.gradle/
+build/
+*/build/
+local.properties
+# built from go/ by go/build.sh (Gradle task buildGo)
+app/src/main/jniLibs/
+.kotlin/

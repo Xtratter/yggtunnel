@@ -1,0 +1,4 @@
+- Secrets encrypted with the Android Keystore, no Android backups of app data
+- Password-protected backup of settings
+- Several servers
+- Server panel

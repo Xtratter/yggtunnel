@@ -1,0 +1,95 @@
+diff -ruN a/network/core.go b/network/core.go
+--- a/network/core.go	2026-10-04 15:11:17.190866478 +0300
++++ b/network/core.go	2026-10-04 15:11:17.218866478 +0300
+@@ -1,13 +1,19 @@
+ package network
+ 
+-import "crypto/ed25519"
++import (
++	"crypto/ed25519"
++	"sync/atomic"
++)
+ 
+ type core struct {
+-	config config     // application-level configuration, must be the same on all nodes in a network
+-	crypto crypto     // crypto info, e.g. pubkeys and sign/verify wrapper functions
+-	router router     // logic to make next-hop decisions (plus maintain needed network state)
+-	peers  peers      // info about peers (from HandleConn), makes routing decisions and passes protocol traffic to relevant parts of the code
+-	pconn  PacketConn // net.PacketConn-like interface
++	config config // application-level configuration, must be the same on all nodes in a network
++	crypto crypto // crypto info, e.g. pubkeys and sign/verify wrapper functions
++	router router // logic to make next-hop decisions (plus maintain needed network state)
++	peers  peers  // info about peers (from HandleConn), makes routing decisions and passes protocol traffic to relevant parts of the code
++	// YggTunnel: traffic bytes routed to a peer but not yet written to its connection (queued or being
++	// written), so an app running several nodes can send through the least loaded one.
++	pending atomic.Int64
++	pconn   PacketConn // net.PacketConn-like interface
+ }
+ 
+ func (c *core) init(secret ed25519.PrivateKey, opts ...Option) error {
+diff -ruN a/network/packetconn.go b/network/packetconn.go
+--- a/network/packetconn.go	2026-10-04 15:11:17.194866478 +0300
++++ b/network/packetconn.go	2026-10-04 15:11:17.218866478 +0300
+@@ -292,3 +292,6 @@
+ 		pc.core.router.pathfinder._rumorSendLookup(k)
+ 	})
+ }
++
++// PendingBytes (YggTunnel): traffic routed to peers but not yet written to their connections.
++func (pc *PacketConn) PendingBytes() int64 { return pc.core.pending.Load() }
+diff -ruN a/network/packetqueue.go b/network/packetqueue.go
+--- a/network/packetqueue.go	2026-10-04 15:11:17.194866478 +0300
++++ b/network/packetqueue.go	2026-10-04 15:11:17.218866478 +0300
+@@ -33,6 +33,8 @@
+ type packetQueue struct {
+ 	dests []pqDest
+ 	size  uint64
++	// YggTunnel: traffic bytes removed by drop since the last look
++	droppedTraffic uint64
+ }
+ 
+ // drop will remove a packet from the queue
+@@ -78,6 +80,7 @@
+ 	q.size -= info.size
+ 	switch p := info.packet.(type) {
+ 	case *traffic:
++		q.droppedTraffic += uint64(p.size())
+ 		freeTraffic(p)
+ 	default:
+ 		// Nothing to do
+diff -ruN a/network/peers.go b/network/peers.go
+--- a/network/peers.go	2026-10-04 15:11:17.194866478 +0300
++++ b/network/peers.go	2026-10-04 15:11:17.218866478 +0300
+@@ -199,6 +199,10 @@
+ 
+ func (w *peerWriter) sendPacket(pType wirePacketType, data wireEncodeable, done func()) {
+ 	w.Act(nil, func() {
++		if tr, ok := data.(*traffic); ok { // YggTunnel: written (or refused) traffic is no longer pending
++			sz := int64(tr.size())
++			defer w.peer.peers.core.pending.Add(-sz)
++		}
+ 		bufSize := uint64(data.size() + 1)
+ 		if bufSize > w.peer.peers.core.config.peerMaxMessageSize {
+ 			return
+@@ -444,6 +448,10 @@
+ 	for p.queue.size > p.peers.core.config.peerMaxMessageSize {
+ 		p.queue.drop()
+ 	}
++	if d := p.queue.droppedTraffic; d > 0 { // YggTunnel: dropped traffic is no longer pending
++		p.peers.core.pending.Add(-int64(d))
++		p.queue.droppedTraffic = 0
++	}
+ }
+ 
+ func (p *peer) pop() {
+diff -ruN a/network/router.go b/network/router.go
+--- a/network/router.go	2026-10-04 15:11:17.194866478 +0300
++++ b/network/router.go	2026-10-04 15:11:17.222866478 +0300
+@@ -592,6 +592,7 @@
+ func (r *router) handleTraffic(from phony.Actor, tr *traffic) {
+ 	r.Act(from, func() {
+ 		if p := r._lookup(tr.path, &tr.watermark); p != nil {
++			r.core.pending.Add(int64(tr.size()))
+ 			p.sendTraffic(r, tr)
+ 		} else if tr.dest == r.core.crypto.publicKey {
+ 			r.pathfinder._resetTimeout(tr.source)

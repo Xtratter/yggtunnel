@@ -1,0 +1,2 @@
+- Real speed test through the server (2 MB, 1 GB a day cap)
+- Measure speed in the connection log on request

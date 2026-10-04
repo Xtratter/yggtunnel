@@ -1,0 +1,2 @@
+- Faster peer test: 24 at once, speeds one by one
+- Progress bar and time left

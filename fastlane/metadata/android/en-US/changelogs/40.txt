@@ -1,0 +1,2 @@
+- Short send queue on the link: no more seconds of delay under upload
+- Diagnostics: queue 128 KB / no limit

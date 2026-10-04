@@ -1,0 +1,1 @@
+- Code cleanup, no change in behaviour; CI starts the app on an emulator

@@ -1,0 +1,1 @@
+- Parallel links: only data is spread, download stays on one link

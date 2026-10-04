@@ -1,0 +1,1 @@
+- Parallel links take turns, so every link carries traffic

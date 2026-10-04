@@ -1,0 +1,1 @@
+- Hide addresses: a real Gaussian blur, faster moving grain

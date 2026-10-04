@@ -1,0 +1,2 @@
+- Delete any server from the list
+- Wrapper setup: no «ready» while it still needs an answer

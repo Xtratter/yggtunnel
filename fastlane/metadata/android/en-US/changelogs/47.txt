@@ -1,0 +1,1 @@
+- Connection log notes sessions that ended without «VPN off»

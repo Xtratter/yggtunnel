@@ -1,0 +1,4 @@
+- Connect / Disconnect: a plain animated edge line instead of the glow
+- Hide addresses: living grain, like Telegram's spoiler
+- No status notification by default (the tile does it; can be turned on)
+- Background work: check and allow unrestricted battery use

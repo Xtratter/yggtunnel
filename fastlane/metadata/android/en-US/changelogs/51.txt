@@ -1,0 +1,1 @@
+- Connection log: no false pause notes after changing the interval, shorter lines

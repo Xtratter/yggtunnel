@@ -1,0 +1,1 @@
+- Reconnect after changes (Settings, on by default): the running VPN reconnects by itself after you change peers, the all-traffic switch, auto-pick, app lists, the wrapper or the server

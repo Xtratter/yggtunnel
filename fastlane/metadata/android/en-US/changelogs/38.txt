@@ -1,0 +1,2 @@
+- Pick peers: ping all, measure the speed of the best by ping
+- Peers card in one style, peer settings moved there

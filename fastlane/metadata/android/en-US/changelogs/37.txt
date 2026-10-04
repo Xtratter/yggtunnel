@@ -1,0 +1,2 @@
+- TLS is the main link to the server again, selectable in Settings
+- The server's peers are no longer shown twice

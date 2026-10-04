@@ -1,0 +1,2 @@
+- Pick peers: the whole public list, tested from the phone, best N
+- Connection log: pings to 8.8.8.8, the server and its IP, drops

@@ -1,0 +1,2 @@
+- Our server's peers (tls, quic, wss) always in the list
+- Connect when the app opens

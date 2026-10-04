@@ -1,0 +1,1 @@
+- Hide addresses: the grain moves at the same speed in every address

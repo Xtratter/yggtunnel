@@ -1,0 +1,3 @@
+- Rate-controlled speed test (update it on the server)
+- No false drops during measurements
+- The connection log scrolls

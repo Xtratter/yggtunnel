@@ -1,0 +1,2 @@
+- Upload diagnostics in the connection log, sent to the server
+- westwood / reno switch for the current link

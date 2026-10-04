@@ -1,0 +1,16 @@
+<p>YggTunnel is a VPN to <b>your own server</b> that travels through the <a href="https://yggdrasil-network.github.io/">Yggdrasil</a> network. The phone does not connect to the server directly: it joins Yggdrasil through public peers (TLS, QUIC, WebSocket), so the tunnel does not depend on a direct connection to the server's address.</p>
+
+<p><b>The server sets itself up</b>, in the spirit of AmneziaVPN: enter the IP, SSH port, user and key — the app logs in over SSH and installs and configures Yggdrasil, WireGuard and NAT on Ubuntu or Debian, with a live log. Running it again is safe.</p>
+
+<ul>
+<li>Full tunnel: WireGuard inside Yggdrasil; Yggdrasil addresses stay reachable</li>
+<li>Wrapper through your site: Yggdrasil peering inside HTTPS to your own site on the server (also behind telemt, xray or haproxy on port 443), set up automatically, with a Let's Encrypt site when 443 is free</li>
+<li>Peers from the public catalog, timed from the phone; auto-pick keeps the fastest few</li>
+<li>Devices: add more phones with a QR code or a link, rename, remove, see who is online</li>
+<li>Per-app routing: bypass list or only-through-VPN list</li>
+<li>Always-on VPN, Quick Settings tile, status notification</li>
+<li>Hide addresses — for screenshots</li>
+<li>Long-press any button or item for help</li>
+</ul>
+
+<p>Needs a server with Ubuntu or Debian and root (or passwordless sudo) access over SSH by key. Without a server, the app works as a plain Yggdrasil client.</p>

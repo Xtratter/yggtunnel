@@ -1,0 +1,2 @@
+- Hide addresses (Settings): the server's host, IP and SSH port, the wss path and Yggdrasil addresses are shown as example values — for screenshots
+- Builds for armeabi-v7a and x86_64 besides arm64; native libraries are 16 KB-aligned (Android 15+)

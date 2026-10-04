@@ -1,0 +1,3 @@
+- Peer catalog through the server when the site is unreachable
+- Server description in /etc/yggtunnel/server.json
+- Phone settings on the server (without SSH keys)

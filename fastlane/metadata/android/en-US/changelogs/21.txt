@@ -1,0 +1,4 @@
+- Themes (As in the system, Light, Dark, Graphite, AMOLED) and transparency
+- Animated glowing edge on Connect / Disconnect
+- Hide addresses: a grainy blur over every address
+- Auto-pick: choose how many peers to keep (3 recommended)

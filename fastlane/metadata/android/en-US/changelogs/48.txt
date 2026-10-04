@@ -1,0 +1,2 @@
+- Every settings change goes into the connection log
+- «VPN on» shows the link and the number of links

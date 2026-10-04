@@ -1,0 +1,1 @@
+- Public peers only as a fallback while the direct link to the server is up

@@ -1,0 +1,2 @@
+- A dead parallel link is taken out at once
+- Hang and crash reports sent to the server, problem report button
