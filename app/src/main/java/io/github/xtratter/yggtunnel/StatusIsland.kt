@@ -58,10 +58,13 @@ object StatusIsland {
         if (e != null) present(ctx.applicationContext, e)
     }
 
-    /** The height was changed: the pill on screen is taken away and shown again at the new place. */
+    /** The height was changed: the pill on screen slides to the new place, or — when none is up — one is shown. */
     fun moved(ctx: Context, state: YggVpnService.State, ok: Boolean, peers: Int, viaServer: Boolean) {
-        main.post { pill?.remove() }
-        preview(ctx, state, ok, peers, viaServer)
+        val app = ctx.applicationContext
+        main.post {
+            val p = pill
+            if (p != null) p.nudge(topFor(app, p.view), 2200L) else preview(app, state, ok, peers, viaServer)
+        }
     }
 
     /** The switch was turned off: take the pill away. */
@@ -98,15 +101,19 @@ object StatusIsland {
         return (12 * dp).toInt() to (64 * dp).toInt()
     }
 
+    /** Where the window's top edge goes: the cutout's middle (or the status bar's) lowered by the set share of the screen height. */
+    private fun topFor(app: Context, view: StatusIslandView): Int {
+        val (cy, _) = geometry(app)
+        return (cy - view.windowHeight / 2 + (app.resources.displayMetrics.heightPixels * Prefs(app).islandDrop / 100f).toInt()).coerceAtLeast(0)
+    }
+
     private fun makePill(app: Context): Pill? {
         val dp = app.resources.displayMetrics.density
-        val (cy, cutW) = geometry(app)
-        val collapsedH = (24 * dp).toInt()
         // the service may run without the app open: the island still wears the app's theme
         Prefs(app).let { io.github.xtratter.uikit.M3.apply(app, it.theme.mode, it.translucent) }
-        val view = StatusIslandView(app, cutW + (4 * dp).toInt(), collapsedH)
+        val view = StatusIslandView(app)
         // below the cutout by the set share of the screen height (Settings → Island height): the camera does not cover the text
-        val top = (cy - view.windowHeight / 2 + (app.resources.displayMetrics.heightPixels * Prefs(app).islandDrop / 100f).toInt()).coerceAtLeast(0)
+        val top = topFor(app, view)
         var p: Pill
         if (canOverlay(app)) {
             val wm = app.getSystemService(WindowManager::class.java)
@@ -117,14 +124,14 @@ object StatusIsland {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = top; title = "StatusIsland"
                 if (Build.VERSION.SDK_INT >= 28) layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
-            p = Pill(view, inApp = false, resize = { w -> lp.width = w; wm.updateViewLayout(view, lp) },
+            p = Pill(view, inApp = false, move = { y -> lp.y = y; wm.updateViewLayout(view, lp) }, top = top, resize = { w -> lp.width = w; wm.updateViewLayout(view, lp) },
                 attach = { wm.addView(view, lp) }, detach = { wm.removeViewImmediate(view) })
             if (runCatching { p.attach() }.isSuccess) { pill = p; return p }
             // the system refused (an OEM restriction): inside the app, below
         }
         val vg = host?.get() ?: return null
         val lp = FrameLayout.LayoutParams(1, view.windowHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = top }
-        p = Pill(view, inApp = true, resize = { w -> lp.width = w; view.layoutParams = lp },
+        p = Pill(view, inApp = true, move = { y -> lp.topMargin = y; view.layoutParams = lp }, top = top, resize = { w -> lp.width = w; view.layoutParams = lp },
             attach = { vg.addView(view, lp) }, detach = { vg.removeView(view) })
         p.attach()
         pill = p
@@ -132,18 +139,30 @@ object StatusIsland {
     }
 
     /** One pill on screen: a new event changes its text and bounces it, the hold timer starts again. */
-    private class Pill(val view: StatusIslandView, val inApp: Boolean, val resize: (Int) -> Unit, val attach: () -> Unit, val detach: () -> Unit) {
+    private class Pill(val view: StatusIslandView, val inApp: Boolean, val move: (Int) -> Unit, var top: Int, val resize: (Int) -> Unit, val attach: () -> Unit, val detach: () -> Unit) {
         private var anim: ValueAnimator? = null
         private val hold = Runnable { collapse() }
 
         private var maxW = 0
+        private var moveAnim: ValueAnimator? = null
+
+        /** The height setting changed while the pill is up: it slides to the new place and stays a bit longer. */
+        fun nudge(newTop: Int, holdMs: Long) {
+            moveAnim?.cancel()
+            moveAnim = ValueAnimator.ofInt(top, newTop).apply {
+                duration = 180; interpolator = OvershootInterpolator(1.0f)
+                addUpdateListener { top = it.animatedValue as Int; move(top) }
+                start()
+            }
+            if (view.progress >= 0.99f) { main.removeCallbacks(hold); main.postDelayed(hold, holdMs) }
+        }
 
         fun present(text: String, kind: Kind, holdMs: Long) {
             main.removeCallbacks(hold); anim?.cancel()
             view.set(text, kind)
             maxW = maxOf(maxW, view.windowWidth()) // the window only grows while the pill is up: no cut edges
             resize(maxW)
-            val from = if (view.progress >= 0.99f) 0.8f else view.progress
+            val from = if (view.progress >= 0.99f) 0.9f else view.progress
             run(from, 1f, 380, OvershootInterpolator(1.4f)) { main.postDelayed(hold, holdMs) }
         }
 

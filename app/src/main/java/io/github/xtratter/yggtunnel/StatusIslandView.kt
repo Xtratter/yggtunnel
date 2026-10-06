@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.view.View
@@ -15,10 +16,10 @@ import io.github.xtratter.yggtunnel.StatusIslandModel.Kind
 /**
  * The island itself, in the app's own Material 3 Expressive look: a tonal capsule (the theme's surface colour, a
  * hairline, a soft shadow) with a round state bubble — a spinner, a check, a power sign or an exclamation mark — and
- * the text. It grows out of a small capsule ([progress] 0 → 1, a little more while it overshoots). The view is
+ * the text. It comes out of blur ([progress] 0 → 1, a little more while it springs) and goes back into it. The view is
  * larger than the capsule by [pad] on every side, so the overshoot and the shadow are never cut by the window edge.
  */
-class StatusIslandView(ctx: Context, private val collapsedW: Int, private val collapsedH: Int) : View(ctx) {
+class StatusIslandView(ctx: Context) : View(ctx) {
     private val dp = ctx.resources.displayMetrics.density
     private val sp = ctx.resources.displayMetrics.scaledDensity
     val pad = (22 * dp).toInt()
@@ -31,17 +32,36 @@ class StatusIslandView(ctx: Context, private val collapsedW: Int, private val co
     private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 14f * sp; typeface = M3.bold }
     private val rect = RectF()
     private val arc = RectF()
+    private val clip = Path()
 
     private var text = ""
     private var kind = Kind.CONNECTING
-    private var capW = collapsedW.toFloat()
+    private var capW = 0f
     private var widthAnim: ValueAnimator? = null
     private var spin = 0f
     private var spinner: ValueAnimator? = null
 
-    /** 0 — a small capsule, 1 — full size. */
+    /**
+     * 0 — not there, 1 — shown (a little more while it springs). Showing and hiding are the same thing run
+     * forwards and backwards: out of blur, fading in and growing from 80 %; and back into blur.
+     */
     var progress = 0f
-        set(v) { field = v; invalidate() }
+        set(v) {
+            field = v
+            val shown = v.coerceIn(0f, 1f)
+            alpha = (shown / 0.6f).coerceAtMost(1f)
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                val r = Math.round((1f - shown) * 18f * dp * 2f) / 2f // half-pixel steps: not a new effect on every frame
+                if (r != blurR) {
+                    blurR = r
+                    setRenderEffect(if (r > 0.5f) android.graphics.RenderEffect.createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP) else null)
+                }
+            }
+            invalidate()
+        }
+    private var blurR = -1f
+
+    init { alpha = 0f } // invisible until the first frame of the animation
 
     private fun capWidthFor(t: String) = textP.measureText(t) + 60 * dp
 
@@ -59,7 +79,7 @@ class StatusIslandView(ctx: Context, private val collapsedW: Int, private val co
         glyph.color = if (Color.luminance(bubble.color) > 0.5f) 0xFF10131A.toInt() else 0xFFFFFFFF.toInt()
         val to = capWidthFor(text)
         widthAnim?.cancel()
-        if (progress < 0.5f || capW == collapsedW.toFloat()) capW = to
+        if (progress < 0.5f || capW == 0f) capW = to
         else widthAnim = ValueAnimator.ofFloat(capW, to).apply {
             duration = 240
             addUpdateListener { capW = it.animatedValue as Float; invalidate() }
@@ -92,26 +112,26 @@ class StatusIslandView(ctx: Context, private val collapsedW: Int, private val co
     }
 
     override fun onDraw(c: Canvas) {
-        val p = progress.coerceAtLeast(0f)
-        val cw = collapsedW + (capW - collapsedW) * p
-        val ch = collapsedH + (capH - collapsedH) * p.coerceAtMost(1.12f)
+        val p = progress
+        val scale = 0.8f + 0.2f * p.coerceAtMost(1.35f)
+        val cw = capW
         val l = (width - cw) / 2f
-        val t = (height - ch) / 2f
-        rect.set(l, t, l + cw, t + ch)
-        c.drawRoundRect(rect, ch / 2f, ch / 2f, fill)
-        c.drawRoundRect(rect, ch / 2f, ch / 2f, line)
-        val a = ((p.coerceAtMost(1f) - 0.5f) / 0.5f).coerceIn(0f, 1f)
-        if (a <= 0f) return
-        // the state bubble
-        val r = 14f * dp * (0.6f + 0.4f * a)
-        val cx = l + 6f * dp + 14f * dp
+        val t = (height - capH) / 2f
+        c.save()
+        c.scale(scale, scale, width / 2f, height / 2f)
+        rect.set(l, t, l + cw, t + capH)
+        c.drawRoundRect(rect, capH / 2f, capH / 2f, fill)
+        c.drawRoundRect(rect, capH / 2f, capH / 2f, line)
+        // while the capsule changes its width for a new text, the content never goes beyond it
+        clip.reset(); clip.addRoundRect(rect, capH / 2f, capH / 2f, Path.Direction.CW)
+        c.clipPath(clip)
+        val r = 14f * dp
+        val cx = l + 6f * dp + r
         val cy = height / 2f
-        bubble.alpha = (255 * a).toInt()
         c.drawCircle(cx, cy, r, bubble)
-        glyph.alpha = (255 * a).toInt()
         drawGlyph(c, cx, cy)
-        textP.alpha = (255 * a).toInt()
         c.drawText(text, l + 6f * dp + 28f * dp + 10f * dp, cy - (textP.ascent() + textP.descent()) / 2f, textP)
+        c.restore()
     }
 
     private fun drawGlyph(c: Canvas, cx: Float, cy: Float) {

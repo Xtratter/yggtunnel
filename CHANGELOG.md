@@ -2,6 +2,11 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.47 — 2026-10-06
+
+- Status island: it now appears out of blur and dissolves back into it (Android 12+; older versions fade only) instead of growing out of a small capsule — so the text no longer sticks out of the capsule edges while it grows or shrinks, and it also stays inside while the capsule changes width for a new text
+- Changing «Island height» no longer makes the island flash: the one on screen slides to the new place and stays a little longer
+
 ## 0.46 — 2026-10-06
 
 - **Status island, reworked** in the app's own look: a tonal capsule in the theme's colours (light or dark with the theme) with a soft shadow and a round state bubble — a spinner while connecting, a check, a power sign, an exclamation mark

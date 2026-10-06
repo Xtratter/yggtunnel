@@ -1,0 +1,1 @@
+- Island appears out of blur; smoother height setting
