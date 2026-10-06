@@ -245,6 +245,56 @@ func b64hex(s string) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// parseTunnelConfig checks the config and returns the keys in the hex form of WireGuard's IPC and the server address.
+func parseTunnelConfig(cfg TunnelConfig) (priv, pub string, server netip.Addr, err error) {
+	if priv, err = b64hex(cfg.PrivateKey); err != nil {
+		return
+	}
+	if pub, err = b64hex(cfg.ServerKey); err != nil {
+		return
+	}
+	server, err = netip.ParseAddr(cfg.ServerYgg)
+	if err != nil || !yggNet.Contains(server) {
+		err = fmt.Errorf("bad server address %q", cfg.ServerYgg)
+	}
+	return
+}
+
+// wgIPC is the WireGuard configuration: one peer (the server) that gets all traffic.
+func wgIPC(priv, pub string, server netip.Addr, port int) string {
+	return strings.Join([]string{
+		"private_key=" + priv,
+		"replace_peers=true",
+		"public_key=" + pub,
+		"endpoint=" + netip.AddrPortFrom(server, uint16(port)).String(),
+		"persistent_keepalive_interval=25",
+		"replace_allowed_ips=true",
+		"allowed_ip=0.0.0.0/0",
+		"allowed_ip=::/0",
+	}, "\n") + "\n"
+}
+
+// readFromYgg: Yggdrasil → WireGuard (datagrams from the server) or → TUN (everything else).
+func readFromYgg(rwc *ipv6rwc.ReadWriteCloser, f *os.File, bind *yggBind, server netip.Addr, port uint16) {
+	buf := make([]byte, int(rwc.MTU())+64)
+	for {
+		k, err := rwc.Read(buf)
+		if err != nil {
+			return
+		}
+		if from, data, ok := parseUDP(buf[:k], port); ok && from.Addr() == server {
+			bind.deliver(from, data)
+			continue
+		}
+		if pings.catch(buf[:k]) || tapUDP(buf[:k]) {
+			continue
+		}
+		if _, err := f.Write(buf[:k]); err != nil && errors.Is(err, os.ErrClosed) {
+			return
+		}
+	}
+}
+
 // AttachTunnel is AttachTun for the full-tunnel mode.
 func (n *Node) AttachTunnel(fd int, cfg TunnelConfig) error {
 	n.mu.Lock()
@@ -252,17 +302,9 @@ func (n *Node) AttachTunnel(fd int, cfg TunnelConfig) error {
 	if n.rwc == nil {
 		return errors.New("not running")
 	}
-	priv, err := b64hex(cfg.PrivateKey)
+	priv, pub, server, err := parseTunnelConfig(cfg)
 	if err != nil {
 		return err
-	}
-	pub, err := b64hex(cfg.ServerKey)
-	if err != nil {
-		return err
-	}
-	server, err := netip.ParseAddr(cfg.ServerYgg)
-	if err != nil || !yggNet.Contains(server) {
-		return fmt.Errorf("bad server address %q", cfg.ServerYgg)
 	}
 	if err := syscall.SetNonblock(fd, true); err != nil {
 		return err
@@ -285,16 +327,7 @@ func (n *Node) AttachTunnel(fd int, cfg TunnelConfig) error {
 		Errorf:   func(format string, a ...any) { logSink.add("WireGuard: " + fmt.Sprintf(format, a...)) },
 	}
 	dev := device.NewDevice(t, bind, logger)
-	ipc := strings.Join([]string{
-		"private_key=" + priv,
-		"replace_peers=true",
-		"public_key=" + pub,
-		"endpoint=" + netip.AddrPortFrom(server, uint16(cfg.Port)).String(),
-		"persistent_keepalive_interval=25",
-		"replace_allowed_ips=true",
-		"allowed_ip=0.0.0.0/0",
-		"allowed_ip=::/0",
-	}, "\n") + "\n"
+	ipc := wgIPC(priv, pub, server, cfg.Port)
 	if err := dev.IpcSet(ipc); err != nil {
 		dev.Close()
 		return err
@@ -308,26 +341,7 @@ func (n *Node) AttachTunnel(fd int, cfg TunnelConfig) error {
 		startLanes(ls, cfg.Lanes, cfg.LaneURI, server, uint16(cfg.Port), bind, n.rwc.MTU())
 		logSink.add("Lanes to the server: " + strconv.Itoa(cfg.Lanes))
 	}
-	rwc, port := n.rwc, uint16(cfg.Port)
-	go func() { // Yggdrasil → WireGuard (from the server) or → TUN (everything else)
-		buf := make([]byte, int(rwc.MTU())+64)
-		for {
-			k, err := rwc.Read(buf)
-			if err != nil {
-				return
-			}
-			if from, data, ok := parseUDP(buf[:k], port); ok && from.Addr() == server {
-				bind.deliver(from, data)
-				continue
-			}
-			if pings.catch(buf[:k]) || tapUDP(buf[:k]) {
-				continue
-			}
-			if _, err := f.Write(buf[:k]); err != nil && errors.Is(err, os.ErrClosed) {
-				return
-			}
-		}
-	}()
+	go readFromYgg(n.rwc, f, bind, server, uint16(cfg.Port))
 	logSink.add("Tunnel to " + server.String() + " port " + strconv.Itoa(cfg.Port))
 	return nil
 }

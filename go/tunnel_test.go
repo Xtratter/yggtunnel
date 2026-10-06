@@ -185,3 +185,14 @@ func TestTunnelEndToEnd(t *testing.T) {
 		t.Fatalf("bad tunnel status %+v", st.Tunnel)
 	}
 }
+
+func TestWgIPC(t *testing.T) {
+	got := wgIPC("aa", "bb", netip.MustParseAddr("200::1"), 51820)
+	want := "private_key=aa\nreplace_peers=true\npublic_key=bb\nendpoint=[200::1]:51820\npersistent_keepalive_interval=25\nreplace_allowed_ips=true\nallowed_ip=0.0.0.0/0\nallowed_ip=::/0\n"
+	if got != want {
+		t.Fatalf("got %q", got)
+	}
+	if _, _, _, err := parseTunnelConfig(TunnelConfig{PrivateKey: "x"}); err == nil {
+		t.Fatal("bad key accepted")
+	}
+}
