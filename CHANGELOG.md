@@ -2,6 +2,11 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.40 — 2026-10-06
+
+- **Server functions work when the server's own address does not answer**: getting peers, devices, the wrapper, the server panel and the other things the app does over SSH now go through your Yggdrasil node if the direct connection fails (5 s) and the server's Yggdrasil address is known. It happens by itself; the VPN (the node) has to be on. A refused login or a changed host key is still reported as it is
+- The app carries a small built-in TCP stack for this (used only for these connections, created on first use): the library grows by a few MB. Traffic of the tunnel is not touched
+
 ## 0.39 — 2026-10-06
 
 - Refactoring and speed-up of the packet path, **nothing changes on the wire**: the bytes sent to Yggdrasil nodes and the server are identical to 0.38 (checked byte for byte against the old code on thousands of random packets)

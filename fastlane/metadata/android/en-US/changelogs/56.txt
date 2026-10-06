@@ -1,0 +1,1 @@
+- Server functions work over Yggdrasil when the direct address does not answer

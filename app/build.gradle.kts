@@ -16,8 +16,8 @@ android {
         applicationId = "io.github.xtratter.yggtunnel"
         minSdk = 26
         targetSdk = 35
-        versionCode = 55
-        versionName = "0.39"
+        versionCode = 56
+        versionName = "0.40"
         // Termux builds arm64 only (no NDK there); CI and F-Droid build all three (go/build.sh)
         ndk { abiFilters += abis }
     }
