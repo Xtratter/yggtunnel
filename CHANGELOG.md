@@ -2,6 +2,13 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.39 — 2026-10-06
+
+- Refactoring and speed-up of the packet path, **nothing changes on the wire**: the bytes sent to Yggdrasil nodes and the server are identical to 0.38 (checked byte for byte against the old code on thousands of random packets)
+- Faster packet building: one memory allocation instead of two, checksum ~2× faster (UDP packet build 3.8 → 1.7 µs); fewer allocations for datagrams received from the server
+- The packet code moved to `packet.go`; `AttachTunnel` split into small functions with a test for the WireGuard configuration
+- The connection log summary no longer recompiles a regex for every line
+
 ## 0.38 — 2026-10-04
 
 - **Delete any server from the list**: every server in Server → Servers has «✕» next to «Edit»; it forgets that server on this phone (the server itself is not touched). Before, only the active server could be deleted, from its card

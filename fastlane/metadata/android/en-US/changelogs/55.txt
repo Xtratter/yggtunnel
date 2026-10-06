@@ -1,0 +1,2 @@
+- Faster packet path, identical bytes on the wire
+- Internal refactoring
