@@ -91,46 +91,6 @@ func (pg *pinger) ping(timeout time.Duration, send func(seq uint16) error) (time
 	}
 }
 
-func echo6(src, dst netip.Addr, seq uint16, size int) []byte {
-	icmp := make([]byte, 8+size)
-	icmp[0] = 128 // echo request
-	binary.BigEndian.PutUint16(icmp[4:], probeID)
-	binary.BigEndian.PutUint16(icmp[6:], seq)
-	s, d := src.As16(), dst.As16()
-	binary.BigEndian.PutUint16(icmp[2:], checksum(s[:], d[:], 58, icmp))
-	return append(ipv6Header(src, dst, 58, len(icmp)), icmp...)
-}
-
-func sum16(b []byte) uint16 {
-	var s uint32
-	for i := 0; i+1 < len(b); i += 2 {
-		s += uint32(b[i])<<8 | uint32(b[i+1])
-	}
-	if len(b)%2 == 1 {
-		s += uint32(b[len(b)-1]) << 8
-	}
-	for s > 0xffff {
-		s = s>>16 + s&0xffff
-	}
-	return ^uint16(s)
-}
-
-func echo4(src, dst netip.Addr, seq uint16) []byte {
-	p := make([]byte, 20+8+32)
-	p[0], p[8], p[9] = 0x45, 64, 1
-	binary.BigEndian.PutUint16(p[2:], uint16(len(p)))
-	s, d := src.As4(), dst.As4()
-	copy(p[12:], s[:])
-	copy(p[16:], d[:])
-	binary.BigEndian.PutUint16(p[10:], sum16(p[:20]))
-	icmp := p[20:]
-	icmp[0] = 8 // echo request
-	binary.BigEndian.PutUint16(icmp[4:], probeID)
-	binary.BigEndian.PutUint16(icmp[6:], seq)
-	binary.BigEndian.PutUint16(icmp[2:], sum16(icmp))
-	return p
-}
-
 // PingYgg pings a Yggdrasil address from the running node.
 func (n *Node) PingYgg(dst string, timeout time.Duration) (time.Duration, error) {
 	n.mu.Lock()
