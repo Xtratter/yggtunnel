@@ -54,11 +54,13 @@ func (l *lane) linkUp() bool {
 // lane is lost — every third packet with 3 lanes), on again once a ping through it reaches the server.
 func (l *lane) watch(n int, server netip.Addr, pg *pinger, stop chan struct{}) {
 	name := "Lane " + strconv.Itoa(n)
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
 	for {
 		select {
 		case <-stop:
 			return
-		case <-time.After(time.Second):
+		case <-tick.C:
 		}
 		up := l.linkUp()
 		switch {

@@ -74,8 +74,13 @@ func (b *yggBind) withLanes(ls *lanes) *yggBind { b.lanes = ls; return b }
 
 // deliver hands a WireGuard datagram from Yggdrasil to the bind (dropped if WireGuard lags).
 func (b *yggBind) deliver(from netip.AddrPort, data []byte) {
+	m := make([]byte, 18+len(data)) // the sender's address and port, then the datagram (Open's receive func parses it)
+	a := from.Addr().As16()
+	copy(m, a[:])
+	binary.BigEndian.PutUint16(m[16:], from.Port())
+	copy(m[18:], data)
 	select {
-	case b.in <- append(append(make([]byte, 0, 18+len(data)), from.Addr().AsSlice()...), append(binary.BigEndian.AppendUint16(nil, from.Port()), data...)...):
+	case b.in <- m:
 	default:
 		bindDrops.Add(1)
 	}
