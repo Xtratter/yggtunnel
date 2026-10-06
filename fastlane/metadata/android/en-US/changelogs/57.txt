@@ -1,0 +1,1 @@
+- Connection log shows when the server was reached through Yggdrasil

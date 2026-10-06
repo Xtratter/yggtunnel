@@ -2,6 +2,10 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.41 — 2026-10-06
+
+- The connection log now says when a call to the server (peers, devices, wrapper, server panel…) had to go through Yggdrasil because the server's own address did not answer — and whether that worked, or why not (for example the VPN was off). Before, this was visible only in the call's own log window, which is gone once it is closed
+
 ## 0.40 — 2026-10-06
 
 - **Server functions work when the server's own address does not answer**: getting peers, devices, the wrapper, the server panel and the other things the app does over SSH now go through your Yggdrasil node if the direct connection fails (5 s) and the server's Yggdrasil address is known. It happens by itself; the VPN (the node) has to be on. A refused login or a changed host key is still reported as it is

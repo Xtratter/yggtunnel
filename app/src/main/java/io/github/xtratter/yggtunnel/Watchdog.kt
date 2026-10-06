@@ -23,6 +23,7 @@ object Watchdog {
         if (started) return
         started = true
         val app = c.applicationContext
+        ServerCall.appContext = app
         val main = Handler(Looper.getMainLooper())
         Thread({
             var reported = false

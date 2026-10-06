@@ -212,6 +212,7 @@ func (j *setupJob) dialSSH(addr string, p SetupParams, cfg *ssh.ClientConfig) (*
 		return c, err
 	}
 	if !node.running() {
+		j.logf("Through Yggdrasil: the VPN is off")
 		return nil, fmt.Errorf("%w (turn the VPN on: the server can then be reached through Yggdrasil)", err)
 	}
 	j.logf("Connecting through Yggdrasil")
@@ -220,18 +221,21 @@ func (j *setupJob) dialSSH(addr string, p SetupParams, cfg *ssh.ClientConfig) (*
 	defer cancel()
 	conn, err2 := node.yggDial(ctx, via)
 	if err2 != nil {
+		j.logf("Through Yggdrasil: failed: %v", err2)
 		return nil, fmt.Errorf("%w; through Yggdrasil: %v", err, err2)
 	}
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second)) // the handshake
 	cc, chans, reqs, err2 := ssh.NewClientConn(conn, via, cfg)
 	if err2 != nil {
 		conn.Close()
+		j.logf("Through Yggdrasil: failed: %v", err2)
 		if !shouldFallback(err2) { // the server answered: its own error (login, key) is the one to show
 			return nil, err2
 		}
 		return nil, fmt.Errorf("%w; through Yggdrasil: %v", err, err2)
 	}
 	_ = conn.SetDeadline(time.Time{})
+	j.logf("Through Yggdrasil: connected")
 	return ssh.NewClient(cc, chans, reqs), nil
 }
 

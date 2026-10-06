@@ -1,5 +1,6 @@
 package io.github.xtratter.yggtunnel
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
@@ -12,6 +13,21 @@ import org.json.JSONObject
 object ServerCall {
     private val main = Handler(Looper.getMainLooper())
 
+    /** For the connection log: set once the app starts (Watchdog.start). */
+    @Volatile var appContext: Context? = null
+
+    /** The route of a finished call goes to the connection log: the log window of a call is gone once it is closed. */
+    private fun note(log: String) {
+        val ctx = appContext ?: return
+        val text = when (val r = ServerRoute.of(log)) {
+            null -> return
+            ServerRoute.Connected -> ctx.getString(R.string.log_ssh_ygg_ok)
+            ServerRoute.VpnOff -> ctx.getString(R.string.log_ssh_ygg_off)
+            is ServerRoute.Failed -> ctx.getString(R.string.log_ssh_ygg_fail, r.why)
+        }
+        ConnLog.event(ctx, text)
+    }
+
     /** [run] for a background thread: waits for the script; the result, or null and the error. */
     fun runBlocking(server: JSONObject, mode: String, env: JSONObject, timeoutMs: Long = 90_000): Pair<JSONObject?, String?> {
         val started = Native.setupStart(JSONObject(server.toString()).put("mode", mode).put("env", env).toString())
@@ -20,6 +36,7 @@ object ServerCall {
         while (System.currentTimeMillis() < end) {
             val st = JSONObject(Native.setupStatus())
             if (!st.optBoolean("running")) {
+                note(st.optString("log"))
                 st.optJSONObject("result")?.let { return it to null }
                 val err = st.optString("log").lines().lastOrNull { it.startsWith("error: ") && "script failed" !in it }
                 return null to (err ?: st.optString("error")).removePrefix("error: ")
@@ -40,6 +57,7 @@ object ServerCall {
             override fun run() {
                 val st = JSONObject(Native.setupStatus())
                 if (st.optBoolean("running")) { main.postDelayed(this, 400); return }
+                Thread { note(st.optString("log")) }.start() // the log file: not on the main thread
                 val r = st.optJSONObject("result")
                 if (r != null) { done(r, null); return }
                 // the script's own "error: …" line is more telling than "exited with status 1"

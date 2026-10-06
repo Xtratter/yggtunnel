@@ -433,6 +433,9 @@
     <string name="report_send">Отправить отчёт о проблеме</string>
     <string name="report_sending">Собираю отчёт…</string>
     <string name="h_report">Когда туннель встал или что-то работает не так: отправляет на ваш сервер, что прямо сейчас делает каждая часть приложения (стеки потоков и горутин), состояние узла и журналы — чтобы найти причину. Зависания экрана отправляются сами.</string>
+    <string name="log_ssh_ygg_ok">SSH: собственный адрес сервера не ответил, соединились через Yggdrasil</string>
+    <string name="log_ssh_ygg_off">SSH: собственный адрес сервера не ответил, а VPN выключен (пути через Yggdrasil нет)</string>
+    <string name="log_ssh_ygg_fail">SSH: собственный адрес сервера не ответил; через Yggdrasil тоже: %s</string>
     <string name="log_paused">Проверки не шли %d с (телефон спал или система приостанавливала приложение)</string>
     <string name="log_unclosed">Прошлый сеанс завершился без «VPN выключен»: приложение обновилось, система закрыла его или оно упало</string>
     <string name="log_setting">Настройка: %s</string>

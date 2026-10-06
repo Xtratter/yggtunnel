@@ -429,6 +429,9 @@
     <string name="report_send">Send a problem report</string>
     <string name="report_sending">Collecting the report…</string>
     <string name="h_report">When the tunnel stalls or something misbehaves: sends what every part of the app is doing right now (thread and goroutine stacks), the node\'s state and the logs to your server, so the cause can be found. Hangs of the screen are reported by themselves.</string>
+    <string name="log_ssh_ygg_ok">SSH: the server\u2019s own address did not answer, connected through Yggdrasil</string>
+    <string name="log_ssh_ygg_off">SSH: the server\u2019s own address did not answer, and the VPN is off (no way through Yggdrasil)</string>
+    <string name="log_ssh_ygg_fail">SSH: the server\u2019s own address did not answer; through Yggdrasil too: %s</string>
     <string name="log_paused">No checks for %d s (the phone slept or the system paused the app)</string>
     <string name="log_unclosed">The previous session ended without «VPN off»: the app was updated, the system closed it, or it crashed</string>
     <string name="log_setting">Setting: %s</string>
