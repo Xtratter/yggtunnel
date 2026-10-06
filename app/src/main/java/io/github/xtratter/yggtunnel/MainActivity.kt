@@ -10,9 +10,11 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Toast
+import io.github.xtratter.uikit.EdgeBlur
 import io.github.xtratter.uikit.Haptics
 import io.github.xtratter.uikit.M3
 import io.github.xtratter.uikit.M3Widgets
@@ -120,17 +122,23 @@ class MainActivity : Activity() {
         col.add(M3Widgets.button(this, getString(R.string.log), M3Widgets.ButtonKind.OUTLINED) { showLog() }
             .help(R.string.h_log_t, R.string.h_log), 16f, dp(52f))
 
-        return ScrollView(this).apply {
-            isFillViewport = true
-            addView(col)
+        // the content scrolls under the status and navigation bars and is blurred towards the screen edges (as in
+        // the dialogs and in AppShelf): the system bars' insets go into the column's padding and the blur bands
+        val scroll = ScrollView(this).apply { isFillViewport = true; addView(col) }
+        val tint = { alpha: Int -> (M3.base and 0xFFFFFF) or (alpha shl 24) }
+        return EdgeBlur(this, tint(0x8C), tint(0x59)).apply {
+            alwaysTop = true; alwaysBottom = true
+            addView(scroll, FrameLayout.LayoutParams(-1, -1))
             setOnApplyWindowInsetsListener { v, ins ->
                 val b = ins.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                v.setPadding(b.left, b.top, b.right, b.bottom); ins
+                col.setPadding(dp(16f) + b.left, dp(16f) + b.top, dp(16f) + b.right, dp(24f) + b.bottom)
+                (v as EdgeBlur).apply { topBand = b.top + dp(28f); bottomBand = b.bottom + dp(36f) }
+                ins
             }
         }
     }
 
-    private fun scrollView() = window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as? ScrollView
+    private fun scrollView() = (window.decorView.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as? ViewGroup)?.getChildAt(0) as? ScrollView
 
     /** Applies the theme again and redraws the screen in place (no activity restart, the scroll position stays). */
     fun rebuild() {

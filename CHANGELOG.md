@@ -2,6 +2,10 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.42 — 2026-10-06
+
+- The main screen now has the soft edges of the dialogs and AppShelf: the cards scroll under the status and navigation bars and blur towards the top and bottom edges of the screen (Android 12+; older versions get the fade only)
+
 ## 0.41 — 2026-10-06
 
 - The connection log now says when a call to the server (peers, devices, wrapper, server panel…) had to go through Yggdrasil because the server's own address did not answer — and whether that worked, or why not (for example the VPN was off). Before, this was visible only in the call's own log window, which is gone once it is closed
