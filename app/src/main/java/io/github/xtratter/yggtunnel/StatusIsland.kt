@@ -32,10 +32,6 @@ object StatusIsland {
     private var prev: StatusIslandModel.Phase? = null
     private var pill: Pill? = null
 
-    private const val AMBER = 0xFFFFC857.toInt()
-    private const val GREEN = 0xFF7EE08A.toInt()
-    private const val RED = 0xFFFF6B6B.toInt()
-    private const val GREY = 0xFF9AA0A6.toInt()
 
     /** The open main screen takes the island when there is no permission to draw over other apps. */
     fun registerHost(vg: ViewGroup?) { main.post { host = vg?.let { WeakReference(it) }; if (vg == null) pill?.takeIf { it.inApp }?.remove() } }
@@ -78,15 +74,17 @@ object StatusIsland {
     }
 
     private fun present(app: Context, e: Event) {
-        val (text, color, hold) = when (e.kind) {
-            Kind.CONNECTING -> Triple(app.getString(R.string.island_connecting), AMBER, 2200L)
-            Kind.CONNECTED -> Triple(
+        val text = when (e.kind) {
+            Kind.CONNECTING -> app.getString(R.string.island_connecting)
+            Kind.CONNECTED ->
                 if (e.detail == "server") app.getString(R.string.island_connected_server)
-                else app.getString(R.string.island_connected_peers, e.detail.toIntOrNull() ?: 0), GREEN, 2600L)
-            Kind.DISCONNECTED -> Triple(app.getString(R.string.island_off), GREY, 2200L)
-            Kind.FAILED -> Triple(app.getString(R.string.island_failed) + e.detail.take(28).let { if (it.isEmpty()) "" else ": $it" }, RED, 4000L)
+                else app.getString(R.string.island_connected_peers, e.detail.toIntOrNull() ?: 0)
+            Kind.DISCONNECTED -> app.getString(R.string.island_off)
+            Kind.FAILED -> app.getString(R.string.island_failed) + e.detail.take(28).let { if (it.isEmpty()) "" else ": $it" }
         }
-        main.post { runCatching { (pill ?: makePill(app))?.present(text, color, hold) } }
+        // «Connecting» stays while the connection is being made (the next event turns it into «Connected» or «Failed»)
+        val hold = when (e.kind) { Kind.CONNECTING -> 30_000L; Kind.CONNECTED -> 2600L; Kind.DISCONNECTED -> 2200L; Kind.FAILED -> 4000L }
+        main.post { runCatching { (pill ?: makePill(app))?.present(text, e.kind, hold) } }
     }
 
     /** Where the capsule sits: the middle of the top cutout (or of the status bar) and the cutout's width. */
@@ -104,13 +102,15 @@ object StatusIsland {
         val dp = app.resources.displayMetrics.density
         val (cy, cutW) = geometry(app)
         val collapsedH = (24 * dp).toInt()
+        // the service may run without the app open: the island still wears the app's theme
+        Prefs(app).let { io.github.xtratter.uikit.M3.apply(app, it.theme.mode, it.translucent) }
         val view = StatusIslandView(app, cutW + (4 * dp).toInt(), collapsedH)
         // below the cutout by the set share of the screen height (Settings → Island height): the camera does not cover the text
-        val top = (cy - view.fullHeight / 2 + (app.resources.displayMetrics.heightPixels * Prefs(app).islandDrop / 100f).toInt()).coerceAtLeast(0)
+        val top = (cy - view.windowHeight / 2 + (app.resources.displayMetrics.heightPixels * Prefs(app).islandDrop / 100f).toInt()).coerceAtLeast(0)
         var p: Pill
         if (canOverlay(app)) {
             val wm = app.getSystemService(WindowManager::class.java)
-            val lp = WindowManager.LayoutParams(1, view.fullHeight, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            val lp = WindowManager.LayoutParams(1, view.windowHeight, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT).apply {
@@ -123,7 +123,7 @@ object StatusIsland {
             // the system refused (an OEM restriction): inside the app, below
         }
         val vg = host?.get() ?: return null
-        val lp = FrameLayout.LayoutParams(1, view.fullHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = top }
+        val lp = FrameLayout.LayoutParams(1, view.windowHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = top }
         p = Pill(view, inApp = true, resize = { w -> lp.width = w; view.layoutParams = lp },
             attach = { vg.addView(view, lp) }, detach = { vg.removeView(view) })
         p.attach()
@@ -136,10 +136,13 @@ object StatusIsland {
         private var anim: ValueAnimator? = null
         private val hold = Runnable { collapse() }
 
-        fun present(text: String, color: Int, holdMs: Long) {
+        private var maxW = 0
+
+        fun present(text: String, kind: Kind, holdMs: Long) {
             main.removeCallbacks(hold); anim?.cancel()
-            view.set(text, color)
-            resize(view.fullWidth)
+            view.set(text, kind)
+            maxW = maxOf(maxW, view.windowWidth()) // the window only grows while the pill is up: no cut edges
+            resize(maxW)
             val from = if (view.progress >= 0.99f) 0.8f else view.progress
             run(from, 1f, 380, OvershootInterpolator(1.4f)) { main.postDelayed(hold, holdMs) }
         }

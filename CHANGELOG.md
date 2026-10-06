@@ -2,6 +2,12 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.46 — 2026-10-06
+
+- **Status island, reworked** in the app's own look: a tonal capsule in the theme's colours (light or dark with the theme) with a soft shadow and a round state bubble — a spinner while connecting, a check, a power sign, an exclamation mark
+- «Connecting…» now stays on screen while the connection is being made and turns into «Connected · …» in the same pill (with a small bounce), instead of disappearing after two seconds and coming back later
+- No more visible edges of the animation: the window around the island is larger than the capsule, so the spring and the shadow are not cut off
+
 ## 0.45 — 2026-10-06
 
 - **Island height** setting: with the island on, Settings has a row with «−» and «+» (a step is 1 % of the screen height, 0–20 %, 5 % by default); every step shows the island at the new place, so you can move it until the camera does not cover the text
