@@ -72,6 +72,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         settings.showBattery() // back from the battery settings
+        settings.checkIsland() // back from «display over other apps»
         // "as in the system" follows a dark-mode change made while the app was in the background
         if (!M3.isCurrent(this, Prefs(this).theme.mode, Prefs(this).translucent)) rebuild()
         main.post(tick)

@@ -1,0 +1,1 @@
+- Island: switch turns on after the permission; sits lower

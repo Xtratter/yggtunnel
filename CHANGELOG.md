@@ -2,6 +2,11 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.44 — 2026-10-06
+
+- The «Status island» switch turns on only once «Display over other apps» is really allowed (it stays off while you are on the permission screen and turns on by itself when you come back with the permission); it turns off if the permission is taken away
+- The island sits a little lower (5 % of the screen height), so the camera no longer covers the text
+
 ## 0.43 — 2026-10-06
 
 - **Status island**: a small animated pill at the camera cutout that appears when the connection changes — connecting, connected (with the number of peers), off, could not connect. Turn it on in Settings → «Status island» (off by default). Over other apps it needs the «Display over other apps» permission (the settings screen opens when you turn it on); without it the island shows only while the app is open

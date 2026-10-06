@@ -17,6 +17,8 @@ import io.github.xtratter.uikit.M3Widgets
 
 /** The Settings card and its dialogs: theme, apps, always-on, background work, switches (the peer ones live in PeersCard). */
 class SettingsCard(private val a: MainActivity) {
+    private companion object { @Volatile var islandPending = false }
+
     private val prefs = Prefs(a)
     private var appsText: TextView? = null
     private var batteryText: TextView? = null
@@ -54,17 +56,20 @@ class SettingsCard(private val a: MainActivity) {
                 a.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 3)
             YggVpnService.notificationChanged(a)
         }.help(R.string.h_notification_t, R.string.h_notification), 4f)
-        card.add(M3Widgets.switchRow(a, a.getString(R.string.status_island), prefs.statusIsland) { on ->
-            prefs.statusIsland = on
-            if (!on) StatusIsland.disabled()
-            else {
-                // over other apps needs the «display over other apps» permission; without it the island shows inside the app only
-                if (!StatusIsland.canOverlay(a))
+        val islandRow = M3Widgets.switchRow(a, a.getString(R.string.status_island), prefs.statusIsland) { on ->
+            when {
+                !on -> { prefs.statusIsland = false; StatusIsland.disabled() }
+                StatusIsland.canOverlay(a) -> enableIsland()
+                else -> {
+                    // the switch turns on only once «display over other apps» is really granted (checkIsland, on return)
+                    islandSwitch?.isChecked = false
+                    islandPending = true
                     runCatching { a.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + a.packageName))) }
-                val st = NodeStatus.read()
-                StatusIsland.preview(a, YggVpnService.state, st.ok(YggVpnService.state), st.up, st.tunnel != null)
+                }
             }
-        }.help(R.string.h_island_t, R.string.h_island), 4f)
+        }.help(R.string.h_island_t, R.string.h_island)
+        islandSwitch = islandRow.getChildAt(1) as? android.widget.Switch
+        card.add(islandRow, 4f)
         card.add(M3Widgets.switchRow(a, a.getString(R.string.hide_addresses), Privacy.on) { on ->
             Privacy.set(a, on); if (on) Privacy.resume(); a.refreshAll()
         }.help(R.string.h_hide_t, R.string.h_hide), 4f)
@@ -91,6 +96,26 @@ class SettingsCard(private val a: MainActivity) {
 
     /** Not battery-optimised: Android leaves the VPN alone in the background. */
     fun backgroundAllowed() = a.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(a.packageName)
+
+    private var islandSwitch: android.widget.Switch? = null
+
+    private fun enableIsland() {
+        prefs.statusIsland = true
+        islandSwitch?.isChecked = true
+        val st = NodeStatus.read()
+        StatusIsland.preview(a, YggVpnService.state, st.ok(YggVpnService.state), st.up, st.tunnel != null)
+    }
+
+    /** Back from the permission screen (or any return): the island's switch follows what is really allowed. */
+    fun checkIsland() {
+        if (islandPending) {
+            islandPending = false
+            if (StatusIsland.canOverlay(a)) enableIsland()
+        } else if (prefs.statusIsland && !StatusIsland.canOverlay(a)) {
+            prefs.statusIsland = false // the permission was taken away
+            islandSwitch?.isChecked = false
+        }
+    }
 
     fun showBattery() {
         batteryText?.setText(if (backgroundAllowed()) R.string.background_ok else R.string.background_limited)
