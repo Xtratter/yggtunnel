@@ -286,7 +286,7 @@ func readFromYgg(rwc *ipv6rwc.ReadWriteCloser, f *os.File, bind *yggBind, server
 			bind.deliver(from, data)
 			continue
 		}
-		if pings.catch(buf[:k]) || tapUDP(buf[:k]) {
+		if pings.catch(buf[:k]) || tapUDP(buf[:k]) || yggStackTap(buf[:k]) {
 			continue
 		}
 		if _, err := f.Write(buf[:k]); err != nil && errors.Is(err, os.ErrClosed) {

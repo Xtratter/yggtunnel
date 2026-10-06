@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
@@ -81,3 +83,48 @@ func (s *yggStack) Listen(port uint16) (net.Listener, error) {
 }
 
 func (s *yggStack) Close() { s.once.Do(func() { _ = s.dev.Close() }) }
+
+// yggStk is the running node's stack, made by the first yggDial.
+var yggStk atomic.Pointer[yggStack]
+
+// yggStackTap is the tap of the node's readers: true when the packet belongs to the stack.
+func yggStackTap(p []byte) bool {
+	s := yggStk.Load()
+	return s != nil && s.tap(p)
+}
+
+func closeYggStack() {
+	if s := yggStk.Swap(nil); s != nil {
+		s.Close()
+	}
+}
+
+func (n *Node) running() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.rwc != nil
+}
+
+// yggDial connects to addr ("[Yggdrasil address]:port") through the running node.
+func (n *Node) yggDial(ctx context.Context, addr string) (net.Conn, error) {
+	n.mu.Lock()
+	if n.rwc == nil || n.core == nil {
+		n.mu.Unlock()
+		return nil, errors.New("not running")
+	}
+	s := yggStk.Load()
+	if s == nil || s.rwc != n.rwc { // the first use, or the node was restarted
+		ns, err := newYggStack(n.rwc, subnetAddr(n.core), int(n.rwc.MTU()))
+		if err != nil {
+			n.mu.Unlock()
+			return nil, err
+		}
+		if s != nil {
+			s.Close()
+		}
+		yggStk.Store(ns)
+		s = ns
+	}
+	n.mu.Unlock()
+	return s.DialContext(ctx, addr)
+}

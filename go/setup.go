@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -13,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,6 +63,11 @@ type SetupParams struct {
 	Mode       string            `json:"mode"`    // "" — full setup (server.sh), "devices" — devices.sh, "wrapper" — wrapper.sh, "status" — status.sh, "speed" — speed.sh, "store" — store.sh
 	Env        map[string]string `json:"env"`     // extra variables for the script (ACTION, NAME_B64, CLIENT_NAME)
 	WssPeer    string            `json:"wssPeer"` // the profile's wrapper address, for the server description
+	// Result is what server.sh reported at setup (the app sends the whole profile): yggAddress is where the
+	// server can also be reached, through the phone's own Yggdrasil node (dialSSH).
+	Result struct {
+		YggAddress string `json:"yggAddress"`
+	} `json:"result"`
 }
 
 type setupState struct {
@@ -181,7 +188,7 @@ func (j *setupJob) dial(p SetupParams) (*ssh.Client, error) {
 	}
 	addr := net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
 	j.logf("Connecting to %s@%s", p.User, addr)
-	c, err := ssh.Dial("tcp", addr, cfg)
+	c, err := j.dialSSH(addr, p, cfg)
 	if err != nil && strings.Contains(err.Error(), "unable to authenticate") {
 		if strings.TrimSpace(p.Key) == "" {
 			return nil, errors.New("the server refused the password (wrong password, or password login is off in its sshd)")
@@ -189,6 +196,53 @@ func (j *setupJob) dial(p SetupParams) (*ssh.Client, error) {
 		return nil, errors.New("the server refused the key")
 	}
 	return c, err
+}
+
+// dialSSH dials the server's address; when that does not work and the profile knows the server's Yggdrasil
+// address, it dials that one through the phone's running node (yggdial.go). The host key and the login are the same.
+func (j *setupJob) dialSSH(addr string, p SetupParams, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	ygg, err := netip.ParseAddr(p.Result.YggAddress)
+	if err != nil || !yggNet.Contains(ygg) {
+		return ssh.Dial("tcp", addr, cfg)
+	}
+	direct := *cfg
+	direct.Timeout = directDialTimeout
+	c, err := ssh.Dial("tcp", addr, &direct)
+	if err == nil || !shouldFallback(err) {
+		return c, err
+	}
+	if !node.running() {
+		return nil, fmt.Errorf("%w (turn the VPN on: the server can then be reached through Yggdrasil)", err)
+	}
+	j.logf("Connecting through Yggdrasil")
+	via := net.JoinHostPort(ygg.String(), strconv.Itoa(p.Port))
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	conn, err2 := node.yggDial(ctx, via)
+	if err2 != nil {
+		return nil, fmt.Errorf("%w; through Yggdrasil: %v", err, err2)
+	}
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second)) // the handshake
+	cc, chans, reqs, err2 := ssh.NewClientConn(conn, via, cfg)
+	if err2 != nil {
+		conn.Close()
+		if !shouldFallback(err2) { // the server answered: its own error (login, key) is the one to show
+			return nil, err2
+		}
+		return nil, fmt.Errorf("%w; through Yggdrasil: %v", err, err2)
+	}
+	_ = conn.SetDeadline(time.Time{})
+	return ssh.NewClient(cc, chans, reqs), nil
+}
+
+// directDialTimeout: how long the server's own address gets when there is another way to it.
+const directDialTimeout = 5 * time.Second
+
+// shouldFallback: the server was not reached (or not spoken to); a refused login or a changed host key is an
+// answer, not a reason to try another way.
+func shouldFallback(err error) bool {
+	m := err.Error()
+	return !strings.Contains(m, "unable to authenticate") && !strings.Contains(m, "server key changed")
 }
 
 // installKey makes a new ed25519 key for the app and adds its public half to the login user's

@@ -143,7 +143,7 @@ func (n *Node) AttachTun(fd int) error {
 			if err != nil {
 				return
 			}
-			if pings.catch(buf[:k]) || tapUDP(buf[:k]) {
+			if pings.catch(buf[:k]) || tapUDP(buf[:k]) || yggStackTap(buf[:k]) {
 				continue
 			}
 			if _, err := f.Write(buf[:k]); err != nil && errors.Is(err, os.ErrClosed) {
@@ -158,6 +158,7 @@ func (n *Node) AttachTun(fd int) error {
 func (n *Node) Stop() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	closeYggStack()
 	if n.wg != nil {
 		n.wg.Close() // closes the TUN too
 		n.wg, n.tun, n.split = nil, nil, nil

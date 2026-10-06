@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,5 +132,38 @@ func TestSSHOverYggStack(t *testing.T) {
 	}
 	if string(out) != "ok" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestShouldFallback(t *testing.T) {
+	for _, c := range []struct {
+		err  string
+		want bool
+	}{
+		{"dial tcp 192.0.2.1:22: i/o timeout", true},
+		{"ssh: handshake failed: EOF", true},
+		{"read tcp: connection reset by peer", true},
+		{"ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey]", false},
+		{"ssh: handshake failed: server key changed: expected a, got b", false},
+	} {
+		if got := shouldFallback(errors.New(c.err)); got != c.want {
+			t.Errorf("%q: %v", c.err, got)
+		}
+	}
+}
+
+// Direct address does not answer, the profile knows the Yggdrasil address, the node is off: the direct error
+// comes back with a hint, without waiting for anything else.
+func TestDialSSHNodeOff(t *testing.T) {
+	j := &setupJob{}
+	p := SetupParams{Host: "127.0.0.1", Port: 1, User: "x", Password: "x"}
+	p.Result.YggAddress = "200:1::1"
+	_, err := j.dial(p)
+	if err == nil || !strings.Contains(err.Error(), "turn the VPN on") {
+		t.Fatalf("got %v", err)
+	}
+	p.Result.YggAddress = ""
+	if _, err := j.dial(p); err == nil || strings.Contains(err.Error(), "VPN") {
+		t.Fatalf("no ygg address: %v", err)
 	}
 }
