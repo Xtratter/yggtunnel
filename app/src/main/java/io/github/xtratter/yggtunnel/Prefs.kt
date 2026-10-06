@@ -3,6 +3,8 @@ package io.github.xtratter.yggtunnel
 import android.content.Context
 import org.json.JSONObject
 
+private val WHITESPACE = Regex("\\s+")
+
 /** Settings: the node config (private key → permanent address) and the peer list. */
 class Prefs(ctx: Context) {
     private val p = ctx.getSharedPreferences("prefs", Context.MODE_PRIVATE)
@@ -232,7 +234,7 @@ class Prefs(ctx: Context) {
         p.edit().putBoolean("peers_auto", true).putLong("peers_updated", System.currentTimeMillis()).apply()
     }
 
-    val peerList: List<String> get() = peers.split(Regex("\\s+")).filter { it.isNotBlank() }
+    val peerList: List<String> get() = peers.split(WHITESPACE).filter { it.isNotBlank() }
 
     var theme: Theme
         get() = runCatching { Theme.valueOf(p.getString("theme", null) ?: "") }.getOrDefault(Theme.SYSTEM)

@@ -51,9 +51,11 @@ object ConnLog {
     enum class Kind { DAY, CHECK, INFO, LOST, BACK }
     data class Row(val kind: Kind, val time: String, val text: String)
 
+    private val lineTime = Regex("""^(\d\d)\.(\d\d) (\d\d):(\d\d):(\d\d)""") // not rebuilt per line: lastDay walks a day of them
+
     /** A line's time ("dd.MM HH:mm:ss") as a moment near [now] (the year is not stored: the nearest past one). */
     fun timeOf(line: String, now: java.util.Calendar): Long? {
-        val m = Regex("""^(\d\d)\.(\d\d) (\d\d):(\d\d):(\d\d)""").find(line) ?: return null
+        val m = lineTime.find(line) ?: return null
         val (d, mo, h, mi, se) = m.destructured
         val c = (now.clone() as java.util.Calendar).apply {
             set(get(java.util.Calendar.YEAR), mo.toInt() - 1, d.toInt(), h.toInt(), mi.toInt(), se.toInt()); set(java.util.Calendar.MILLISECOND, 0)
