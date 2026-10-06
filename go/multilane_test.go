@@ -228,7 +228,7 @@ func echoReply(p []byte) []byte {
 	icmp[0], icmp[2], icmp[3] = 129, 0, 0
 	s, d := src.As16(), dst.As16()
 	binary.BigEndian.PutUint16(icmp[2:], checksum(s[:], d[:], 58, icmp))
-	return append(ipv6Header(src, dst, 58, len(icmp)), icmp...)
+	return append(refIpv6Header(src, dst, 58, len(icmp)), icmp...)
 }
 
 // With empty queues the lanes take turns: each one's TCP gets traffic and grows its window.

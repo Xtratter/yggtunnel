@@ -8,53 +8,72 @@ import (
 // Packets built and parsed by hand: IPv6/UDP for WireGuard over Yggdrasil, ICMP echoes, "no route" replies.
 // The bytes are what other Yggdrasil nodes and the server see — packet_test.go pins them to the 0.38 code.
 
-// ---- IPv6/UDP over Yggdrasil -------------------------------------------------
+const ipv6HeaderLen = 40
 
-func checksum(src, dst []byte, proto byte, payload []byte) uint16 {
-	var sum uint32
-	add := func(b []byte) {
-		for i := 0; i+1 < len(b); i += 2 {
-			sum += uint32(b[i])<<8 | uint32(b[i+1])
-		}
-		if len(b)%2 == 1 {
-			sum += uint32(b[len(b)-1]) << 8
-		}
+// sumWords adds b to a one's-complement sum, 4 bytes at a time (a 32-bit word is hi*65536+lo ≡ hi+lo mod 65535,
+// so folding to 16 bits at the end gives the same result as summing 16-bit words). b must start at an even offset
+// of the summed data; an odd last byte counts as the high byte of a word.
+func sumWords(sum uint64, b []byte) uint64 {
+	for len(b) >= 8 {
+		v := binary.BigEndian.Uint64(b)
+		sum += v>>32 + v&0xffffffff
+		b = b[8:]
 	}
-	add(src)
-	add(dst)
-	sum += uint32(len(payload)) + uint32(proto)
-	add(payload)
+	if len(b) >= 4 {
+		sum += uint64(binary.BigEndian.Uint32(b))
+		b = b[4:]
+	}
+	if len(b) >= 2 {
+		sum += uint64(binary.BigEndian.Uint16(b))
+		b = b[2:]
+	}
+	if len(b) == 1 {
+		sum += uint64(b[0]) << 8
+	}
+	return sum
+}
+
+func foldSum(sum uint64) uint16 {
 	for sum > 0xffff {
 		sum = sum>>16 + sum&0xffff
 	}
-	c := ^uint16(sum)
+	return ^uint16(sum)
+}
+
+// checksum is the IPv6 pseudo-header checksum of an upper-layer payload.
+func checksum(src, dst []byte, proto byte, payload []byte) uint16 {
+	sum := sumWords(0, src)
+	sum = sumWords(sum, dst)
+	sum += uint64(len(payload)) + uint64(proto)
+	c := foldSum(sumWords(sum, payload))
 	if c == 0 && proto == 17 {
 		c = 0xffff
 	}
 	return c
 }
 
-func ipv6Header(src, dst netip.Addr, proto byte, payloadLen int) []byte {
-	h := make([]byte, 40, 40+payloadLen)
+// putIPv6Header writes the 40-byte header (hop limit 64) into h.
+func putIPv6Header(h []byte, src, dst *[16]byte, proto byte, payloadLen int) {
 	h[0] = 0x60
 	binary.BigEndian.PutUint16(h[4:], uint16(payloadLen))
 	h[6] = proto
 	h[7] = 64
-	s, d := src.As16(), dst.As16()
-	copy(h[8:], s[:])
-	copy(h[24:], d[:])
-	return h
+	copy(h[8:], src[:])
+	copy(h[24:], dst[:])
 }
 
 func buildUDP(src, dst netip.AddrPort, data []byte) []byte {
-	udp := make([]byte, 8+len(data))
+	n := 8 + len(data)
+	p := make([]byte, ipv6HeaderLen+n)
+	s, d := src.Addr().As16(), dst.Addr().As16()
+	putIPv6Header(p, &s, &d, 17, n)
+	udp := p[ipv6HeaderLen:]
 	binary.BigEndian.PutUint16(udp[0:], src.Port())
 	binary.BigEndian.PutUint16(udp[2:], dst.Port())
-	binary.BigEndian.PutUint16(udp[4:], uint16(len(udp)))
+	binary.BigEndian.PutUint16(udp[4:], uint16(n))
 	copy(udp[8:], data)
-	s, d := src.Addr().As16(), dst.Addr().As16()
 	binary.BigEndian.PutUint16(udp[6:], checksum(s[:], d[:], 17, udp))
-	return append(ipv6Header(src.Addr(), dst.Addr(), 17, len(udp)), udp...)
+	return p
 }
 
 // parseUDP returns the source and payload of an IPv6/UDP packet sent to dstPort.
@@ -77,38 +96,32 @@ func unreachable(from netip.Addr, p []byte) []byte {
 		return nil
 	}
 	quote := p[:min(len(p), tunnelMTU-48)]
-	icmp := make([]byte, 8+len(quote))
+	n := 8 + len(quote)
+	out := make([]byte, ipv6HeaderLen+n)
+	s, d := from.As16(), [16]byte(p[8:24])
+	putIPv6Header(out, &s, &d, 58, n)
+	icmp := out[ipv6HeaderLen:]
 	icmp[0] = 1 // destination unreachable, code 0: no route
 	copy(icmp[8:], quote)
-	dst := netip.AddrFrom16([16]byte(p[8:24]))
-	s, d := from.As16(), dst.As16()
 	binary.BigEndian.PutUint16(icmp[2:], checksum(s[:], d[:], 58, icmp))
-	return append(ipv6Header(from, dst, 58, len(icmp)), icmp...)
+	return out
 }
 
 func echo6(src, dst netip.Addr, seq uint16, size int) []byte {
-	icmp := make([]byte, 8+size)
+	n := 8 + size
+	p := make([]byte, ipv6HeaderLen+n)
+	s, d := src.As16(), dst.As16()
+	putIPv6Header(p, &s, &d, 58, n)
+	icmp := p[ipv6HeaderLen:]
 	icmp[0] = 128 // echo request
 	binary.BigEndian.PutUint16(icmp[4:], probeID)
 	binary.BigEndian.PutUint16(icmp[6:], seq)
-	s, d := src.As16(), dst.As16()
 	binary.BigEndian.PutUint16(icmp[2:], checksum(s[:], d[:], 58, icmp))
-	return append(ipv6Header(src, dst, 58, len(icmp)), icmp...)
+	return p
 }
 
-func sum16(b []byte) uint16 {
-	var s uint32
-	for i := 0; i+1 < len(b); i += 2 {
-		s += uint32(b[i])<<8 | uint32(b[i+1])
-	}
-	if len(b)%2 == 1 {
-		s += uint32(b[len(b)-1]) << 8
-	}
-	for s > 0xffff {
-		s = s>>16 + s&0xffff
-	}
-	return ^uint16(s)
-}
+// sum16 is the plain Internet checksum (IPv4 header, ICMP).
+func sum16(b []byte) uint16 { return foldSum(sumWords(0, b)) }
 
 func echo4(src, dst netip.Addr, seq uint16) []byte {
 	p := make([]byte, 20+8+32)
