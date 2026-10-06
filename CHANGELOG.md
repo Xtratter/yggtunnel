@@ -2,6 +2,10 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.43 — 2026-10-06
+
+- **Status island**: a small animated pill at the camera cutout that appears when the connection changes — connecting, connected (with the number of peers), off, could not connect. Turn it on in Settings → «Status island» (off by default). Over other apps it needs the «Display over other apps» permission (the settings screen opens when you turn it on); without it the island shows only while the app is open
+
 ## 0.42 — 2026-10-06
 
 - The main screen now has the soft edges of the dialogs and AppShelf: the cards scroll under the status and navigation bars and blur towards the top and bottom edges of the screen (Android 12+; older versions get the fade only)

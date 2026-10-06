@@ -54,6 +54,17 @@ class SettingsCard(private val a: MainActivity) {
                 a.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 3)
             YggVpnService.notificationChanged(a)
         }.help(R.string.h_notification_t, R.string.h_notification), 4f)
+        card.add(M3Widgets.switchRow(a, a.getString(R.string.status_island), prefs.statusIsland) { on ->
+            prefs.statusIsland = on
+            if (!on) StatusIsland.disabled()
+            else {
+                // over other apps needs the «display over other apps» permission; without it the island shows inside the app only
+                if (!StatusIsland.canOverlay(a))
+                    runCatching { a.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + a.packageName))) }
+                val st = NodeStatus.read()
+                StatusIsland.preview(a, YggVpnService.state, st.ok(YggVpnService.state), st.up, st.tunnel != null)
+            }
+        }.help(R.string.h_island_t, R.string.h_island), 4f)
         card.add(M3Widgets.switchRow(a, a.getString(R.string.hide_addresses), Privacy.on) { on ->
             Privacy.set(a, on); if (on) Privacy.resume(); a.refreshAll()
         }.help(R.string.h_hide_t, R.string.h_hide), 4f)

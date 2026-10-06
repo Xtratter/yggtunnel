@@ -76,6 +76,7 @@ class MainActivity : Activity() {
         if (!M3.isCurrent(this, Prefs(this).theme.mode, Prefs(this).translucent)) rebuild()
         main.post(tick)
         status.start()
+        StatusIsland.registerHost(window.decorView.findViewById(android.R.id.content))
         Privacy.resume()
     }
 
@@ -83,6 +84,7 @@ class MainActivity : Activity() {
         super.onPause()
         main.removeCallbacks(tick)
         status.stop()
+        StatusIsland.registerHost(null)
         Privacy.pause()
     }
 

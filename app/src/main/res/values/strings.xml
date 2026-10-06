@@ -237,6 +237,14 @@
     <string name="background_later">Later</string>
     <string name="h_background_t">Background work</string>
     <string name="h_background">Whether Android may limit the app in the background to save battery. For a VPN it should be Unrestricted, otherwise the tunnel can drop while the screen is off.</string>
+    <string name="status_island">Status island</string>
+    <string name="h_island_t">Status island</string>
+    <string name="h_island">A small pill at the camera cutout that appears when the connection changes: connecting, connected, off, failed. Over other apps it needs the «Display over other apps» permission (the settings screen opens when you turn it on); without it, it shows only while this app is open.</string>
+    <string name="island_connecting">Connecting…</string>
+    <string name="island_connected_peers">Connected · %d peers</string>
+    <string name="island_connected_server">Connected · server</string>
+    <string name="island_off">VPN off</string>
+    <string name="island_failed">Could not connect</string>
     <string name="status_notification">Status notification</string>
     <string name="h_notification_t">Status notification</string>
     <string name="h_notification">A notification with the status and Disconnect while connected. Off by default: the Quick Settings tile does the same, and Android keeps a running VPN alive and shows the key icon by itself.</string>

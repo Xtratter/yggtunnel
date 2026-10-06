@@ -98,6 +98,7 @@ class YggVpnService : VpnService() {
 
     private fun setState(s: State) {
         state = s
+        StatusIsland.phase(this, StatusIslandModel.Phase.valueOf(s.name), error)
         YggTileService.refresh(this)
         // the status notification only when chosen in Settings: the system keeps a running VpnService
         // alive by itself and shows the key icon (0.6–0.10 always had it)
@@ -181,11 +182,28 @@ class YggVpnService : VpnService() {
             if (Native.isError(r)) return@Thread fail(r)
             watchNetwork()
             setState(State.ON)
+            watchConnected(prefs.tunnelServer != null)
             if (prefs.sessionOpen) ConnLog.event(this, getString(R.string.log_unclosed))
             prefs.sessionOpen = true
             ConnLog.event(this, if (srv != null) getString(R.string.log_on_server2, prefs.serverLink.uppercase(), prefs.lanes) else getString(R.string.log_on))
             main.post { if (state == State.ON) startMonitor() }
             refreshPeersIfStale(prefs)
+        }.start()
+    }
+
+    private var connectedWatch = 0
+
+    /** The island's «connected»: up to 30 s after the node started, until a peer is up (and WireGuard has shaken hands). */
+    private fun watchConnected(viaServer: Boolean) {
+        if (!Prefs(this).statusIsland) return
+        val id = ++connectedWatch
+        Thread {
+            repeat(30) {
+                if (id != connectedWatch || state != State.ON) return@Thread
+                val s = NodeStatus.read()
+                if (s.ok(State.ON)) { StatusIsland.connected(this, true, s.up, viaServer); return@Thread }
+                Thread.sleep(1000)
+            }
         }.start()
     }
 

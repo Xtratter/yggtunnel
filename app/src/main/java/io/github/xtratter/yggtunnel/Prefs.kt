@@ -246,6 +246,11 @@ class Prefs(ctx: Context) {
         set(v) = p.edit().putBoolean("translucent", v).apply()
 
     /** A status notification with Disconnect while connected (off by default since 0.10.2: the tile does it). */
+    /** The status island (StatusIsland): a pill at the camera cutout when the connection changes. Off by default (it may need a permission). */
+    var statusIsland: Boolean
+        get() = p.getBoolean("status_island", false)
+        set(v) = p.edit().putBoolean("status_island", v).apply()
+
     var statusNotification: Boolean
         get() = p.getBoolean("status_notification", false)
         set(v) = p.edit().putBoolean("status_notification", v).apply()

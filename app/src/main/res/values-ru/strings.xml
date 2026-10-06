@@ -239,6 +239,14 @@
     <string name="background_later">Позже</string>
     <string name="h_background_t">Работа в фоне</string>
     <string name="h_background">Может ли Android ограничивать приложение в фоне ради экономии заряда. Для VPN нужно «Без ограничений», иначе туннель может обрываться при выключенном экране.</string>
+    <string name="status_island">Остров статуса</string>
+    <string name="h_island_t">Остров статуса</string>
+    <string name="h_island">Небольшая «пилюля» у выреза камеры, которая появляется при смене состояния соединения: подключение, подключено, выключено, ошибка. Поверх других приложений нужно разрешение «Поверх других приложений» (при включении откроется экран настроек); без него остров показывается только при открытом приложении.</string>
+    <string name="island_connecting">Подключение…</string>
+    <string name="island_connected_peers">Подключено · пиров: %d</string>
+    <string name="island_connected_server">Подключено · сервер</string>
+    <string name="island_off">VPN выключен</string>
+    <string name="island_failed">Не удалось подключиться</string>
     <string name="status_notification">Уведомление о состоянии</string>
     <string name="h_notification_t">Уведомление о состоянии</string>
     <string name="h_notification">Уведомление со статусом и кнопкой «Отключить», пока VPN включён. По умолчанию выключено: то же делает плитка в шторке, а работающий VPN Android держит сам и показывает значок ключа.</string>

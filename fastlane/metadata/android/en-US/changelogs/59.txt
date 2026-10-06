@@ -1,0 +1,1 @@
+- New: status island at the camera cutout (Settings)
