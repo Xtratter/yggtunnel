@@ -2,6 +2,10 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.45 — 2026-10-06
+
+- **Island height** setting: with the island on, Settings has a row with «−» and «+» (a step is 1 % of the screen height, 0–20 %, 5 % by default); every step shows the island at the new place, so you can move it until the camera does not cover the text
+
 ## 0.44 — 2026-10-06
 
 - The «Status island» switch turns on only once «Display over other apps» is really allowed (it stays off while you are on the permission screen and turns on by itself when you come back with the permission); it turns off if the permission is taken away

@@ -251,6 +251,11 @@ class Prefs(ctx: Context) {
         get() = p.getBoolean("status_island", false)
         set(v) = p.edit().putBoolean("status_island", v).apply()
 
+    /** How far below the cutout the island sits, in % of the screen height (0–20; 5 by default). */
+    var islandDrop: Int
+        get() = p.getInt("island_drop", 5).coerceIn(0, 20)
+        set(v) = p.edit().putInt("island_drop", v.coerceIn(0, 20)).apply()
+
     var statusNotification: Boolean
         get() = p.getBoolean("status_notification", false)
         set(v) = p.edit().putBoolean("status_notification", v).apply()

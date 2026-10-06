@@ -240,6 +240,9 @@
     <string name="status_island">Status island</string>
     <string name="h_island_t">Status island</string>
     <string name="h_island">A small pill at the camera cutout that appears when the connection changes: connecting, connected, off, failed. Over other apps it needs the «Display over other apps» permission (the settings screen opens when you turn it on); without it, it shows only while this app is open.</string>
+    <string name="island_height">Island height</string>
+    <string name="h_island_height_t">Island height</string>
+    <string name="h_island_height">How far below the top edge of the screen the island sits, in % of the screen height. Each step shows the island at the new place. Raise or lower it until the camera does not cover the text.</string>
     <string name="island_connecting">Connecting…</string>
     <string name="island_connected_peers">Connected · %d peers</string>
     <string name="island_connected_server">Connected · server</string>

@@ -58,7 +58,7 @@ class SettingsCard(private val a: MainActivity) {
         }.help(R.string.h_notification_t, R.string.h_notification), 4f)
         val islandRow = M3Widgets.switchRow(a, a.getString(R.string.status_island), prefs.statusIsland) { on ->
             when {
-                !on -> { prefs.statusIsland = false; StatusIsland.disabled() }
+                !on -> { prefs.statusIsland = false; StatusIsland.disabled(); showIslandHeight() }
                 StatusIsland.canOverlay(a) -> enableIsland()
                 else -> {
                     // the switch turns on only once «display over other apps» is really granted (checkIsland, on return)
@@ -70,6 +70,8 @@ class SettingsCard(private val a: MainActivity) {
         }.help(R.string.h_island_t, R.string.h_island)
         islandSwitch = islandRow.getChildAt(1) as? android.widget.Switch
         card.add(islandRow, 4f)
+        islandHeight = islandHeightRow().also { card.add(it, 4f) }
+        showIslandHeight()
         card.add(M3Widgets.switchRow(a, a.getString(R.string.hide_addresses), Privacy.on) { on ->
             Privacy.set(a, on); if (on) Privacy.resume(); a.refreshAll()
         }.help(R.string.h_hide_t, R.string.h_hide), 4f)
@@ -98,10 +100,40 @@ class SettingsCard(private val a: MainActivity) {
     fun backgroundAllowed() = a.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(a.packageName)
 
     private var islandSwitch: android.widget.Switch? = null
+    private var islandHeight: LinearLayout? = null
+
+    /** The height row is there while the island is on. */
+    private fun showIslandHeight() { islandHeight?.visibility = if (prefs.statusIsland) android.view.View.VISIBLE else android.view.View.GONE }
+
+    /** «Island height»: − and + (a step is 1 % of the screen height; every step shows the island at the new place). */
+    private fun islandHeightRow(): LinearLayout {
+        val value = a.text(16f, M3.TEXT).apply { gravity = android.view.Gravity.CENTER; minWidth = a.dp(56f) }
+        fun showValue() { value.text = "${prefs.islandDrop} %" }
+        fun step(delta: Int) {
+            val v = (prefs.islandDrop + delta).coerceIn(0, 20)
+            if (v == prefs.islandDrop) return
+            prefs.islandDrop = v; showValue()
+            io.github.xtratter.uikit.Haptics.play(io.github.xtratter.uikit.Haptics.Kind.TICK)
+            val st = NodeStatus.read()
+            StatusIsland.moved(a, YggVpnService.state, st.ok(YggVpnService.state), st.up, st.tunnel != null)
+        }
+        fun stepButton(label: String, delta: Int) = M3Widgets.button(a, label, M3Widgets.ButtonKind.TONAL) { step(delta) }
+            .apply { setPadding(0, 0, 0, 0) }
+        showValue()
+        return LinearLayout(a).apply {
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            minimumHeight = a.dp(56f)
+            addView(a.text(16f).apply { setText(R.string.island_height) }, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(stepButton("−", -1), LinearLayout.LayoutParams(a.dp(48f), a.dp(40f)))
+            addView(value)
+            addView(stepButton("+", 1), LinearLayout.LayoutParams(a.dp(48f), a.dp(40f)))
+        }.help(R.string.h_island_height_t, R.string.h_island_height)
+    }
 
     private fun enableIsland() {
         prefs.statusIsland = true
         islandSwitch?.isChecked = true
+        showIslandHeight()
         val st = NodeStatus.read()
         StatusIsland.preview(a, YggVpnService.state, st.ok(YggVpnService.state), st.up, st.tunnel != null)
     }
@@ -114,6 +146,7 @@ class SettingsCard(private val a: MainActivity) {
         } else if (prefs.statusIsland && !StatusIsland.canOverlay(a)) {
             prefs.statusIsland = false // the permission was taken away
             islandSwitch?.isChecked = false
+            showIslandHeight()
         }
     }
 

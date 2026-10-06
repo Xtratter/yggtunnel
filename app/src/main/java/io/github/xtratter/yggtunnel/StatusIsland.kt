@@ -32,7 +32,6 @@ object StatusIsland {
     private var prev: StatusIslandModel.Phase? = null
     private var pill: Pill? = null
 
-    private const val DROP = 0.05f
     private const val AMBER = 0xFFFFC857.toInt()
     private const val GREEN = 0xFF7EE08A.toInt()
     private const val RED = 0xFFFF6B6B.toInt()
@@ -61,6 +60,12 @@ object StatusIsland {
             else -> Event(Kind.CONNECTING)
         }
         if (e != null) present(ctx.applicationContext, e)
+    }
+
+    /** The height was changed: the pill on screen is taken away and shown again at the new place. */
+    fun moved(ctx: Context, state: YggVpnService.State, ok: Boolean, peers: Int, viaServer: Boolean) {
+        main.post { pill?.remove() }
+        preview(ctx, state, ok, peers, viaServer)
     }
 
     /** The switch was turned off: take the pill away. */
@@ -100,8 +105,8 @@ object StatusIsland {
         val (cy, cutW) = geometry(app)
         val collapsedH = (24 * dp).toInt()
         val view = StatusIslandView(app, cutW + (4 * dp).toInt(), collapsedH)
-        // a little below the cutout (5 % of the screen height): the camera does not cover the text
-        val top = (cy - view.fullHeight / 2 + (app.resources.displayMetrics.heightPixels * DROP).toInt()).coerceAtLeast(0)
+        // below the cutout by the set share of the screen height (Settings → Island height): the camera does not cover the text
+        val top = (cy - view.fullHeight / 2 + (app.resources.displayMetrics.heightPixels * Prefs(app).islandDrop / 100f).toInt()).coerceAtLeast(0)
         var p: Pill
         if (canOverlay(app)) {
             val wm = app.getSystemService(WindowManager::class.java)
