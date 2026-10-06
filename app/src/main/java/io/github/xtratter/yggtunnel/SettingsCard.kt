@@ -22,11 +22,6 @@ class SettingsCard(private val a: MainActivity) {
     private val prefs = Prefs(a)
     private var appsText: TextView? = null
     private var batteryText: TextView? = null
-    private var connLogText: TextView? = null
-
-    private fun showConnLog() {
-        connLogText?.text = if (prefs.connLog) a.getString(R.string.connlog_summary_on, prefs.connLogInterval) else a.getString(R.string.connlog_off)
-    }
 
     fun addTo(col: LinearLayout) {
         val card = a.card()
@@ -75,9 +70,6 @@ class SettingsCard(private val a: MainActivity) {
         card.add(M3Widgets.switchRow(a, a.getString(R.string.hide_addresses), Privacy.on) { on ->
             Privacy.set(a, on); if (on) Privacy.resume(); a.refreshAll()
         }.help(R.string.h_hide_t, R.string.h_hide), 4f)
-        row(R.string.connlog_title, R.string.h_connlog, R.string.h_connlog_t, { ConnLogUi(a) { showConnLog() }.show() }) {
-            connLogText = it; showConnLog()
-        }
         row(R.string.backup_title, R.string.h_backup, R.string.h_backup_t, { BackupUi(a).show() }) { it.setText(R.string.backup_summary) }
         card.add(a.text(12.5f, M3.TEXT3).apply { setText(R.string.help_tip) }, 10f)
         col.add(card, 16f)

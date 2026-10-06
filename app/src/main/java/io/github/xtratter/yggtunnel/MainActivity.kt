@@ -248,10 +248,8 @@ class MainActivity : Activity() {
 
     // ---- log and crash report ----
 
-    private fun showLog() {
-        val log = Native.log().ifEmpty { getString(R.string.log_empty) }
-        textDialog(R.string.log, Privacy.mask(this, log), log)
-    }
+    /** The log screen: the connection log and the node's log in one window. */
+    private fun showLog() = ConnLogUi(this).show()
 
     /** The previous run crashed: show what happened, with Copy — to send it to the developer. */
     private fun showCrash(crash: String) = textDialog(R.string.crash_title, crash, crash)

@@ -2,6 +2,10 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.48 — 2026-10-06
+
+- **One log instead of two**: the «Log» button now opens one window with two tabs — «Connection» (the checks, outages and events by day) and «Node» (the node's own log, scrolled to the end and following it). The buttons «Settings» and «Diagnostics» are above the tabs, «Copy» copies the open tab, «Clear» is on the connection tab. When the connection log is off, its tab offers to turn it on. The separate «Connection log» row is gone from Settings
+
 ## 0.47 — 2026-10-06
 
 - Status island: it now appears out of blur and dissolves back into it (Android 12+; older versions fade only) instead of growing out of a small capsule — so the text no longer sticks out of the capsule edges while it grows or shrinks, and it also stays inside while the capsule changes width for a new text

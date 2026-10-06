@@ -347,6 +347,9 @@
     <string name="h_pt_limit">Every chosen peer is connected and pinged, 24 at once. Then the speed is measured only for this many with the fewest losses and the lowest ping — one at a time, so the measurements do not share your line. Saves time and the server\'s traffic.</string>
     <string name="h_pt_best">How many of the best are ticked after the test. Auto-pick (below in Peers) then keeps the fastest few of them connected.</string>
     <string name="h_pt_apply">Makes the ticked peers your peer list, best first. The weekly catalog refresh will not replace it.</string>
+    <string name="log_tab_connection">Connection</string>
+    <string name="log_tab_node">Node</string>
+    <string name="connlog_enable">Turn on the connection log</string>
     <string name="connlog_title">Connection log</string>
     <string name="connlog_explain">While connected, checks every few seconds: 8.8.8.8 through the tunnel, your server through Yggdrasil and the server\'s public address directly. Drops and their length are marked.</string>
     <string name="connlog_on">Keep the log</string>

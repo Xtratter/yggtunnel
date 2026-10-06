@@ -7,6 +7,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import io.github.xtratter.uikit.M3
@@ -18,15 +19,24 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The connection log screen: only the log — newest first, by day, events coloured — with the last day's
- * checks and outages on top. The log's settings and the diagnostics (speed, upload diagnostics, a problem
- * report) open in dialogs of their own. Re-reads the file every 3 s, only when it changed and while the
- * list is scrolled to the top (so it does not jump under the reader).
+ * The log screen, one for both logs: «Connection» — newest first, by day, events coloured, with the last day's
+ * checks and outages on top; «Node» — the node's own log, oldest first, scrolled to the end. The recording's
+ * settings and the diagnostics (speed, upload diagnostics, a problem report) open in dialogs of their own.
+ * Re-reads every 3 s, only when something changed and — for the connection log — while the list is scrolled to
+ * the top (so it does not jump under the reader).
  */
-class ConnLogUi(private val a: MainActivity, private val onChange: () -> Unit) {
+class ConnLogUi(private val a: MainActivity, private val onChange: () -> Unit = {}) {
     private val prefs = Prefs(a)
     private var onlyEvents = true
     private var shownVersion = -1L
+    private var node = !prefs.connLog // the tab: the node's log when the connection log is off
+    private val tabs = LinearLayout(a).apply { gravity = Gravity.CENTER_VERTICAL }
+    private val enable by lazy {
+        M3Widgets.button(a, a.getString(R.string.connlog_enable), M3Widgets.ButtonKind.TONAL) {
+            prefs.connLog = true; YggVpnService.monitorChanged(a); refresh()
+        }
+    }
+    private var dialog: AlertDialog? = null
     private val summary = a.text(13f, M3.TEXT2)
     private val filters = LinearLayout(a).apply { gravity = Gravity.CENTER_VERTICAL }
     private val log = a.text(12f, M3.TEXT, Typeface.MONOSPACE).apply { setTextIsSelectable(true) }
@@ -43,24 +53,35 @@ class ConnLogUi(private val a: MainActivity, private val onChange: () -> Unit) {
             addView(M3Widgets.button(a, a.getString(R.string.connlog_diag), M3Widgets.ButtonKind.TONAL) { DiagUi(a) { refresh() }.show() }
                 .help(R.string.connlog_diag, R.string.h_connlog_diag), LinearLayout.LayoutParams(0, a.dp(40f), 1f))
         }
-        renderFilters()
+        renderTabs(); renderFilters()
         // the header stays, only the log scrolls (no scroll inside a scrolling dialog)
         val box = LinearLayout(a).apply {
             orientation = LinearLayout.VERTICAL; setPadding(a.dp(20f), a.dp(4f), a.dp(20f), 0)
-            addView(buttons); add(summary, 10f); add(filters, 6f)
+            addView(buttons); add(tabs, 10f); add(summary, 8f); add(filters, 6f)
+            add(enable, 8f, a.dp(44f))
             add(scroll, 8f, (a.resources.displayMetrics.heightPixels * 0.55f).toInt())
         }
-        val d = Theme.dialog(a).setTitle(R.string.connlog_title).setView(box)
-            .setPositiveButton(R.string.copy) { _, _ -> a.copy(ConnLog.read(a)) }
+        val d = Theme.dialog(a).setTitle(R.string.log).setView(box)
+            .setPositiveButton(R.string.copy) { _, _ -> a.copy(if (node) Native.log() else ConnLog.read(a)) }
             .setNeutralButton(R.string.connlog_clear, null)
             .setNegativeButton(R.string.close, null).create()
         d.prestyle()
+        dialog = d
         d.setOnShowListener {
             d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { ConnLog.clear(a); refresh() }
+            refresh()
             a.main.post(tick)
         }
         d.setOnDismissListener { a.main.removeCallbacks(tick); onChange() }
         d.show()
+    }
+
+    private fun renderTabs() {
+        tabs.removeAllViews()
+        for ((label, isNode) in listOf(a.getString(R.string.log_tab_connection) to false, a.getString(R.string.log_tab_node) to true))
+            tabs.addView(M3Widgets.chip(a, label, node == isNode) {
+                node = isNode; renderTabs(); refresh()
+            }, LinearLayout.LayoutParams(-2, a.dp(36f)).apply { marginEnd = a.dp(6f) })
     }
 
     private fun renderFilters() {
@@ -71,13 +92,33 @@ class ConnLogUi(private val a: MainActivity, private val onChange: () -> Unit) {
             }, LinearLayout.LayoutParams(-2, a.dp(36f)).apply { marginEnd = a.dp(6f) })
     }
 
-    /** Re-render now, at the top. */
+    /** Re-render now: the connection log at the top, the node's log at its end. */
     private fun refresh() { shownVersion = -1; scroll.scrollTo(0, 0); fill() }
 
     private fun fill() {
-        val v = ConnLog.version(a)
-        if (v == shownVersion || scroll.scrollY > a.dp(8f)) return // unchanged, or the reader is down the list
-        shownVersion = v
+        val v = if (node) nodeText().hashCode().toLong() else ConnLog.version(a)
+        val tabFlag = if (node) 1L else 0L
+        // the connection log is re-read only when it changed and the reader is at the top; the node's log — when it changed
+        if (v * 2 + tabFlag == shownVersion || (!node && scroll.scrollY > a.dp(8f))) return
+        shownVersion = v * 2 + tabFlag
+        summary.visibility = if (node) View.GONE else View.VISIBLE
+        filters.visibility = if (node) View.GONE else View.VISIBLE
+        enable.visibility = if (!node && !prefs.connLog) View.VISIBLE else View.GONE
+        dialog?.getButton(AlertDialog.BUTTON_NEUTRAL)?.visibility = if (node) View.INVISIBLE else View.VISIBLE
+        if (node) fillNode() else fillConnection()
+    }
+
+    private fun nodeText() = Native.log().ifEmpty { a.getString(R.string.log_empty) }
+
+    /** The node's log, oldest first; follows the end while the reader is at the end. */
+    private fun fillNode() {
+        val atEnd = scroll.scrollY + scroll.height >= log.height - a.dp(24f)
+        log.text = Privacy.mask(a, nodeText())
+        Privacy.track(log)
+        if (atEnd || scroll.scrollY == 0) scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun fillConnection() {
         val lines = ConnLog.read(a).lines().filter { it.isNotBlank() }
         val now = Calendar.getInstance()
         val (checks, lost) = ConnLog.lastDay(lines, now)
