@@ -2,6 +2,13 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.3.0 — unreleased
+
+- Kill switch (off by default): while connected, traffic that is not going through the tunnel is dropped, except the
+  daemon's own traffic, DHCP, IPv6 neighbour discovery and (optionally) the local network; `yggtunnelctl killswitch`
+  and `lan`, the «Protection» card in the window; removed by `down`, `panic` and when the daemon stops
+- The translation check no longer passes when the only missing string is «Off»
+
 ## 0.2.0 — unreleased
 
 - The window `yggtunnel-gui` (Qt 6): state, server, peers, connect and disconnect, profile import by link or file,

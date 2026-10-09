@@ -202,7 +202,7 @@ func TestCLIStatusShowsKillSwitchStates(t *testing.T) {
 		{"armed", map[string]any{"settings": map[string]any{"killSwitch": true, "allowLan": true}, "killSwitchActive": false},
 			[]string{"Kill switch: armed", "Local network: allowed"}, nil},
 		{"active", map[string]any{"settings": map[string]any{"killSwitch": true, "allowLan": false}, "killSwitchActive": true},
-			[]string{"Kill switch: active", "Local network: blocked"}, nil},
+			[]string{"Kill switch: active", "Local network: dropped"}, nil},
 	}
 	for _, c := range cases {
 		sock, s := serve(t)

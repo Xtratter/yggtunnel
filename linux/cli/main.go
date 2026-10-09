@@ -147,7 +147,7 @@ func printStatus(w io.Writer, raw json.RawMessage) {
 		if s.Settings.AllowLAN {
 			fmt.Fprintln(w, "Local network: allowed")
 		} else {
-			fmt.Fprintln(w, "Local network: blocked")
+			fmt.Fprintln(w, "Local network: dropped")
 		}
 	}
 	if s.Error != "" {
