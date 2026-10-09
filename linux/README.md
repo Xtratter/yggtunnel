@@ -32,12 +32,12 @@ host network; they are skipped with a message where namespaces are unavailable.
 
 ### The window
 
-Needs Qt 6 (`qt6-declarative`, `qt6-tools`), CMake and Ninja.
+Run these from the `linux/` directory. Needs Qt 6 (`qt6-declarative`, `qt6-tools`), CMake and Ninja.
 
 ```sh
-cmake -S linux/gui -B linux/gui/build -G Ninja && cmake --build linux/gui/build
-ctest --test-dir linux/gui/build        # offscreen; writes screenshots to linux/gui/build/shots
-linux/gui/build/yggtunnel-gui
+cmake -S gui -B gui/build -G Ninja && cmake --build gui/build
+ctest --test-dir gui/build        # offscreen; writes screenshots to gui/build/shots
+gui/build/yggtunnel-gui
 ```
 
 The window shows the state, the server and the peers, connects and disconnects, imports a profile (paste a
@@ -53,7 +53,7 @@ sudo install -m644 packaging/yggtunneld.service /etc/systemd/system/
 sudo install -m644 packaging/io.github.xtratter.yggtunnel.policy /usr/share/polkit-1/actions/
 sudo groupadd -f yggtunnel && sudo usermod -aG yggtunnel "$USER"   # log in again afterwards
 sudo systemctl enable --now yggtunneld
-sudo cmake --install linux/gui/build --prefix /usr   # the window, its menu entry and icon
+sudo cmake --install gui/build --prefix /usr   # the window, its menu entry and icon
 ```
 
 ## Use

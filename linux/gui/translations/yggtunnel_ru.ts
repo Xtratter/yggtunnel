@@ -4,22 +4,27 @@
 <context>
     <name>Controller</name>
     <message>
-        <location filename="../src/controller.cpp" line="148"/>
+        <location filename="../src/controller.cpp" line="149"/>
+        <source>The profile is too large (over 64 KiB).</source>
+        <translation>Профиль слишком велик (больше 64 КиБ).</translation>
+    </message>
+    <message>
+        <location filename="../src/controller.cpp" line="153"/>
         <source>Paste a yggtunnel://import#… link first.</source>
         <translation>Сначала вставьте ссылку yggtunnel://import#…</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="152"/>
+        <location filename="../src/controller.cpp" line="157"/>
         <source>The daemon is not reachable.</source>
         <translation>Демон недоступен.</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="166"/>
+        <location filename="../src/controller.cpp" line="171"/>
         <source>Cannot read the file: %1</source>
         <translation>Не удаётся прочитать файл: %1</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="170"/>
+        <location filename="../src/controller.cpp" line="177"/>
         <source>The file is too large for a profile (over 64 KiB).</source>
         <translation>Файл слишком велик для профиля (больше 64 КиБ).</translation>
     </message>
@@ -133,18 +138,19 @@
     </message>
     <message>
         <location filename="../qml/Main.qml" line="24"/>
-        <location filename="../qml/Main.qml" line="52"/>
+        <location filename="../qml/Main.qml" line="61"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="25"/>
+        <location filename="../qml/Main.qml" line="43"/>
         <source>Connected</source>
         <translation>Подключено</translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="26"/>
-        <location filename="../qml/Main.qml" line="55"/>
+        <location filename="../qml/Main.qml" line="63"/>
         <source>Reconnecting…</source>
         <translation>Переподключение…</translation>
     </message>
@@ -159,42 +165,42 @@
         <translation>Демон недоступен</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="53"/>
+        <location filename="../qml/Main.qml" line="43"/>
         <source>Connected · 1 peer</source>
         <translation>Подключено · 1 пир</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="54"/>
+        <location filename="../qml/Main.qml" line="43"/>
         <source>Connected · %1 peers</source>
         <translation>Подключено · пиров: %1</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="58"/>
+        <location filename="../qml/Main.qml" line="66"/>
         <source>Disconnected</source>
         <translation>Отключено</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="60"/>
+        <location filename="../qml/Main.qml" line="68"/>
         <source>Could not connect</source>
         <translation>Не удалось подключиться</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="113"/>
+        <location filename="../qml/Main.qml" line="124"/>
         <source>Log</source>
         <translation>Журнал</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="119"/>
+        <location filename="../qml/Main.qml" line="130"/>
         <source>Import a profile</source>
         <translation>Импорт профиля</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="139"/>
+        <location filename="../qml/Main.qml" line="150"/>
         <source>Disable everything?</source>
         <translation>Отключить всё?</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="152"/>
+        <location filename="../qml/Main.qml" line="163"/>
         <source>This disconnects and removes every route, rule and DNS setting that YggTunnel added.</source>
         <translation>Соединение будет разорвано, а все маршруты, правила и настройки DNS, добавленные YggTunnel, удалены.</translation>
     </message>

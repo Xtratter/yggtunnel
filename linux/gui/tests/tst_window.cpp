@@ -197,6 +197,32 @@ private slots:
         a.daemon.pushEvent("state", QJsonObject{{"state", "off"}});
         QTRY_VERIFY(a.text("islandLabel").contains("Disconnected"));
     }
+    void islandConnectedDoesNotClaimZeroPeers() {
+        App a(sock());
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        a.ctl->setPollInterval(60000); // the poll is behind `up`: only the event has arrived
+        a.daemon.pushEvent("state", QJsonObject{{"state", "connected"}});
+        QTRY_VERIFY(a.item("island")->property("shown").toBool());
+        QCOMPARE(a.text("islandLabel"), QString("Connected"));
+        a.state = "connected"; // the next status reply brings the peers; the island follows
+        a.ctl->setPollInterval(50);
+        QTRY_COMPARE(a.text("islandLabel"), QString("Connected · 2 peers"));
+    }
+    void stickyIslandStaysWhileConnectingAndHidesWhenDaemonGoesAway() {
+        App a(sock());
+        QVERIFY2(a.item("island")->metaObject()->indexOfProperty("hideDelay") >= 0, "Island has no hideDelay property");
+        a.item("island")->setProperty("hideDelay", 300);
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        a.ctl->setPollInterval(60000);
+        a.daemon.pushEvent("state", QJsonObject{{"state", "starting"}});
+        QTRY_VERIFY(a.item("island")->property("shown").toBool());
+        QTest::qWait(900); // three times the hide delay
+        QVERIFY2(a.item("island")->property("shown").toBool(), "a sticky island must stay while connecting");
+        a.daemon.close();
+        QTRY_VERIFY(!a.item("island")->property("shown").toBool());
+    }
     void islandStaysQuietAtStartup() {
         App a(sock());
         QTRY_COMPARE(a.text("statusLabel"), QString("Off"));

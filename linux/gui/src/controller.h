@@ -32,7 +32,7 @@ public:
     bool daemonReachable() const { return m_reachable; }
     QString reachError() const;
     QString state() const { return m_state; }
-    QString lastError() const { return m_lastError; }
+    QString lastError() const { return m_actionError.isEmpty() ? m_statusError : m_actionError; }
     bool busy() const { return m_busy; }
     bool hasProfile() const { return !m_serverAddress.isEmpty(); }
     QString profileName() const { return m_profileName; }
@@ -72,7 +72,8 @@ private:
     bool m_busy = false;
     bool m_polling = false;
     QString m_state = "unreachable";
-    QString m_lastError;
+    QString m_statusError; // the daemon's own last error, replaced by every status
+    QString m_actionError; // why this window's last command failed; cleared by the next command or reconnect
     QString m_profileName, m_serverAddress, m_nodeAddress, m_nodeLog;
     QVariantList m_peers;
     double m_handshakeAgo = -1;

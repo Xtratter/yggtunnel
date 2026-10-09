@@ -52,6 +52,7 @@ void Controller::setState(const QString &state, const QString &error)
 void Controller::onConnectedChanged(bool connected)
 {
     m_reachable = connected;
+    m_actionError.clear();
     if (connected) {
         m_poll.start();
         pollStatus();
@@ -77,7 +78,9 @@ void Controller::onEvent(const QString &kind, const QJsonValue &data)
     if (state.isEmpty())
         return;
     if (!o["error"].toString().isEmpty())
-        m_lastError = o["error"].toString();
+        m_statusError = o["error"].toString();
+    if (state == "connected")
+        m_actionError.clear();
     setState(state, o["error"].toString());
     emit changed();
 }
@@ -89,9 +92,7 @@ void Controller::pollStatus()
     m_polling = true;
     m_client->call("status", {}, [this](bool ok, const QString &error, const QJsonValue &data) {
         m_polling = false;
-        if (!ok) {
-            if (m_reachable)
-                m_lastError = error;
+        if (!ok) { // not a state: the connection is failing; the unreachable path reports it
             emit changed();
             return;
         }
@@ -105,8 +106,7 @@ void Controller::applyStatus(const QJsonObject &s)
     m_profileName = profile["name"].toString();
     m_serverAddress = profile["serverYgg"].toString(); // the private key in `profile` is deliberately not read
     const QString err = s["error"].toString();
-    if (!err.isEmpty())
-        m_lastError = err;
+    m_statusError = err; // an empty answer clears an old failure
     const QJsonObject node = s["node"].toObject();
     m_nodeAddress = node["address"].toString();
     m_handshakeAgo = node["tunnel"].toObject()["handshakeAgo"].toDouble(-1);
@@ -129,10 +129,11 @@ void Controller::runAction(const QString &cmd)
     if (!m_reachable || m_busy)
         return;
     m_busy = true;
+    m_actionError.clear();
     emit changed();
     m_client->call(cmd, {}, [this](bool ok, const QString &error, const QJsonValue &) {
         m_busy = false;
-        m_lastError = ok ? QString() : error;
+        m_actionError = ok ? QString() : error;
         emit changed();
         pollStatus();
     });
@@ -144,6 +145,10 @@ void Controller::panic() { runAction("panic"); }
 
 void Controller::importLink(const QString &text)
 {
+    if (text.toUtf8().size() > kImportMaxBytes) { // the daemon drops a connection that sends a huge line
+        emit importFinished(false, tr("The profile is too large (over 64 KiB)."));
+        return;
+    }
     if (text.trimmed().isEmpty()) {
         emit importFinished(false, tr("Paste a yggtunnel://import#… link first."));
         return;
@@ -166,11 +171,13 @@ void Controller::importFile(const QUrl &url)
         emit importFinished(false, tr("Cannot read the file: %1").arg(f.errorString()));
         return;
     }
-    if (f.size() > kImportMaxBytes) {
+    // read() with a limit: size() is 0 for pipes and devices, and readAll() on them never ends
+    const QByteArray data = f.read(kImportMaxBytes + 1);
+    if (data.size() > kImportMaxBytes) {
         emit importFinished(false, tr("The file is too large for a profile (over 64 KiB)."));
         return;
     }
-    importLink(QString::fromUtf8(f.readAll()));
+    importLink(QString::fromUtf8(data));
 }
 
 void Controller::refreshLog()

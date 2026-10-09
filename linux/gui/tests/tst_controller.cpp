@@ -143,6 +143,47 @@ private slots:
         QTRY_COMPARE(r.ctl.lastError(), QString("already in progress"));
         QVERIFY(!r.ctl.busy());
     }
+    void staleActionErrorClearsAfterReconnect() {
+        Rig r(sock());
+        auto base = r.daemon.handler;
+        r.daemon.handler = [base](const QString &cmd, const QJsonObject &a, bool *ok, QString *e) -> QJsonValue {
+            if (cmd == "up") { *ok = false; *e = "step failed"; return QJsonValue(); }
+            return base(cmd, a, ok, e);
+        };
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.up();
+        QTRY_COMPARE(r.ctl.lastError(), QString("step failed"));
+        r.daemon.close(); // the daemon restarts
+        QTRY_COMPARE(r.ctl.state(), QString("unreachable"));
+        QVERIFY(r.daemon.listen(sock()));
+        QTRY_COMPARE_WITH_TIMEOUT(r.ctl.state(), QString("off"), 5000);
+        QCOMPARE(r.ctl.lastError(), QString());
+    }
+    void statusErrorDisappearsWhenStatusHasNone() {
+        Rig r(sock());
+        QString err = "old failure";
+        r.daemon.handler = [&](const QString &cmd, const QJsonObject &, bool *, QString *) -> QJsonValue {
+            return cmd == "status" ? QJsonValue(statusData("off", false, err)) : QJsonValue();
+        };
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.lastError(), QString("old failure"));
+        err.clear();
+        QTRY_COMPARE(r.ctl.lastError(), QString());
+    }
+    void importLinkRefusesHugeText() {
+        Rig r(sock());
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        QSignalSpy spy(&r.ctl, &Controller::importFinished);
+        r.ctl.importLink(QString(70 * 1024, 'x'));
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toBool(), false);
+        QVERIFY(!r.daemon.received.contains("import")); // a huge line would make the daemon drop the connection
+    }
     void historyKeepsNewestFirstAndCaps200() {
         Rig r(sock());
         QVERIFY(r.daemon.listen(sock()));

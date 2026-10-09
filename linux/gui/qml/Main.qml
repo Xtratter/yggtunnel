@@ -36,12 +36,21 @@ ApplicationWindow {
         return n
     }
 
+    // "Connected" with the number of peers once it is known: during `up` the first poll is still
+    // behind the command, so the count may arrive after the state.
+    function connectedText() {
+        var n = root.upPeers
+        return n === 0 ? qsTr("Connected") : n === 1 ? qsTr("Connected · 1 peer") : qsTr("Connected · %1 peers").arg(n)
+    }
+
     // Island messages on transitions; nothing at startup.
     property string previousState: ""
     Connections {
         target: ctl
         function onChanged() {
             var s = ctl.state
+            if (island.shown && island.mode === "connected")
+                island.text = root.connectedText()
             if (s === root.previousState)
                 return
             var before = root.previousState
@@ -50,8 +59,7 @@ ApplicationWindow {
                 return
             switch (s) {
             case "starting": island.show(qsTr("Connecting…"), true); break
-            case "connected": island.show(root.upPeers === 1 ? qsTr("Connected · 1 peer")
-                                          : qsTr("Connected · %1 peers").arg(root.upPeers), false); break
+            case "connected": island.show(root.connectedText(), false, "connected"); break
             case "reconnecting": island.show(qsTr("Reconnecting…"), true); break
             case "off":
                 if (before === "connected" || before === "starting" || before === "reconnecting")
@@ -59,6 +67,9 @@ ApplicationWindow {
                 break
             case "error": island.show(qsTr("Could not connect"), false); break
             }
+            // a "connecting" capsule must not outlive its state (the daemon may have gone away)
+            if (island.sticky && s !== "starting" && s !== "reconnecting")
+                island.shown = false
         }
     }
 

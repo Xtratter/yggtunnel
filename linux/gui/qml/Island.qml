@@ -11,6 +11,8 @@ Rectangle {
     property string text: ""
     property bool sticky: false
     property bool shown: false
+    property int hideDelay: 3000
+    property string mode: ""   // lets the owner keep updating the text of a particular message
 
     implicitWidth: label.implicitWidth + 40
     implicitHeight: 40
@@ -26,16 +28,21 @@ Rectangle {
     Behavior on opacity { NumberAnimation { duration: 200 } }
     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack; easing.overshoot: 1.6 } }
 
-    function show(message, keep) {
+    // A sticky message (connecting, reconnecting) stays until the owner hides it.
+    function show(message, keep, kind) {
         text = message
         sticky = keep
+        mode = kind || ""
         shown = true
-        hideTimer.restart()
+        if (keep)
+            hideTimer.stop()
+        else
+            hideTimer.restart()
     }
 
     Timer {
         id: hideTimer
-        interval: 3000
+        interval: island.hideDelay
         running: island.shown && !island.sticky
         onTriggered: island.shown = false
     }

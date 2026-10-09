@@ -32,12 +32,12 @@ go vet ./... && go test ./...
 
 ### Окно
 
-Нужны Qt 6 (`qt6-declarative`, `qt6-tools`), CMake и Ninja.
+Команды выполняются из каталога `linux/`. Нужны Qt 6 (`qt6-declarative`, `qt6-tools`), CMake и Ninja.
 
 ```sh
-cmake -S linux/gui -B linux/gui/build -G Ninja && cmake --build linux/gui/build
-ctest --test-dir linux/gui/build        # без экрана; скриншоты пишутся в linux/gui/build/shots
-linux/gui/build/yggtunnel-gui
+cmake -S gui -B gui/build -G Ninja && cmake --build gui/build
+ctest --test-dir gui/build        # без экрана; скриншоты пишутся в gui/build/shots
+gui/build/yggtunnel-gui
 ```
 
 Окно показывает состояние, сервер и пиры, подключает и отключает, импортирует профиль (вставьте ссылку или
@@ -53,7 +53,7 @@ sudo install -m644 packaging/yggtunneld.service /etc/systemd/system/
 sudo install -m644 packaging/io.github.xtratter.yggtunnel.policy /usr/share/polkit-1/actions/
 sudo groupadd -f yggtunnel && sudo usermod -aG yggtunnel "$USER"   # потом перелогиньтесь
 sudo systemctl enable --now yggtunneld
-sudo cmake --install linux/gui/build --prefix /usr   # окно, пункт меню и значок
+sudo cmake --install gui/build --prefix /usr   # окно, пункт меню и значок
 ```
 
 ## Использование
@@ -84,4 +84,4 @@ nftables `inet yggtunnel`, которая помечает собственны�
 
 ## Пока нет
 
-Kill switch, раздельной маршрутизации (по приложениям и по подсетям или доменам), настроек автовыбора пиров и каналов в окне, значка в трее, пакета (PKGBUILD). См. `docs/superpowers/specs/2026-10-09-linux-client-design.md`.
+Отсутствуют: kill switch, раздельная маршрутизация (по приложениям и по подсетям или доменам), настройки автовыбора пиров и каналов в окне, значок в трее, пакет (PKGBUILD). См. `docs/superpowers/specs/2026-10-09-linux-client-design.md`.
