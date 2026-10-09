@@ -1,4 +1,6 @@
-package netconf
+// Package nstest runs tests inside a throw-away user+network namespace, so they can change routes,
+// rules and nftables without touching the host.
+package nstest
 
 import (
 	"os"
@@ -9,10 +11,10 @@ import (
 
 const inNSEnv = "YGGTUNNEL_TEST_INNS"
 
-// inNetns re-runs the calling test inside a fresh user+network namespace (`unshare -rn`), where the
+// InNetns re-runs the calling test inside a fresh user+network namespace (`unshare -rn`), where the
 // test has CAP_NET_ADMIN and cannot touch the host network. It returns true in the child (run the
 // body) and false in the parent (the child already ran; the caller must return).
-func inNetns(t *testing.T) bool {
+func InNetns(t *testing.T) bool {
 	t.Helper()
 	if os.Getenv(inNSEnv) == "1" {
 		return true
@@ -32,8 +34,8 @@ func inNetns(t *testing.T) bool {
 	return false
 }
 
-// snapshot is a text image of everything netconf changes.
-func snapshot(t *testing.T) string {
+// Snapshot is a text image of everything netconf changes.
+func Snapshot(t *testing.T) string {
 	t.Helper()
 	var sb strings.Builder
 	for _, args := range [][]string{
@@ -50,8 +52,8 @@ func snapshot(t *testing.T) string {
 	return sb.String()
 }
 
-// ownCgroup is the absolute cgroup v2 directory of this process.
-func ownCgroup(t *testing.T) string {
+// OwnCgroup is the absolute cgroup v2 directory of this process.
+func OwnCgroup(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {

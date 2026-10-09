@@ -1,0 +1,117 @@
+package daemon
+
+import (
+	"net/netip"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/Xtratter/yggtunnel/linux/internal/netconf"
+	"github.com/Xtratter/yggtunnel/linux/internal/nstest"
+	"github.com/Xtratter/yggtunnel/linux/internal/store"
+)
+
+// nsNet is RealNet without DNS (systemd-resolved is not reachable from a throw-away namespace).
+type nsNet struct{}
+
+func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr) (*os.File, error) {
+	f, err := netconf.CreateTun(p.IfName)
+	if err != nil {
+		return nil, err
+	}
+	if err := netconf.Configure(tx, p); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func (nsNet) Recover(prev store.PrevState) error { return netconf.RecoverFrom(prev) }
+
+func ipOut(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("ip", args...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("ip %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
+func nsRig(t *testing.T) *rig {
+	r := newRig(t)
+	r.d.n = nsNet{}
+	r.d.CgroupPath = nstest.OwnCgroup(t)
+	r.importSample(t)
+	return r
+}
+
+func TestIntegrationUpAndDownLeaveNoTrace(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	before := nstest.Snapshot(t)
+	r := nsRig(t)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	addr := ipOut(t, "addr", "show", "yggtun0")
+	for _, want := range []string{"192.0.2.10", "mtu 1280", "200:db8::1", "2001:db8::10"} {
+		if !strings.Contains(addr, want) {
+			t.Errorf("addr misses %q:\n%s", want, addr)
+		}
+	}
+	if rt := ipOut(t, "-4", "route", "show", "table", "51871"); !strings.Contains(rt, "default dev yggtun0") {
+		t.Errorf("no default route in the tunnel table:\n%s", rt)
+	}
+	if ru := ipOut(t, "-4", "rule", "show"); !strings.Contains(ru, "not from all fwmark 0x5967 lookup 51871") ||
+		!strings.Contains(ru, "suppress_prefixlength 0") {
+		t.Errorf("rules:\n%s", ru)
+	}
+	if _, err := r.cmd("down"); err != nil {
+		t.Fatal(err)
+	}
+	if after := nstest.Snapshot(t); after != before {
+		t.Fatalf("down left changes\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestIntegrationRecoverAfterDaemonDied(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	before := nstest.Snapshot(t)
+	r := nsRig(t)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	// the process "dies": a new daemon starts on the same state directory
+	r2 := newRig(t)
+	r2.d.st = r.st
+	r2.d.n = nsNet{}
+	if err := r2.d.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if after := nstest.Snapshot(t); after != before {
+		t.Fatalf("recovery left changes\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+	if _, ok, _ := r.st.Prev(); ok {
+		t.Fatal("prev record not cleared")
+	}
+}
+
+func TestIntegrationLeftoverInterfaceDoesNotBlockUp(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	if out, err := exec.Command("ip", "link", "add", "yggtun0", "type", "dummy").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	r := nsRig(t)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.cmd("down"); err != nil {
+		t.Fatal(err)
+	}
+}

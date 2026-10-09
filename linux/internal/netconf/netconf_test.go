@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Xtratter/yggtunnel/linux/internal/nstest"
 	"github.com/Xtratter/yggtunnel/linux/internal/store"
 	"github.com/vishvananda/netlink"
 )
@@ -13,12 +14,12 @@ func params(t *testing.T) Params {
 	return Params{
 		IfName: "yggtun0", YggAddr: netip.MustParseAddr("200:db8::1"),
 		ClientIP4: netip.MustParseAddr("192.0.2.10"), ClientIP6: netip.MustParseAddr("2001:db8::10"),
-		MTU: 1280, Table: 51871, Mark: 0x5967, CgroupPath: ownCgroup(t),
+		MTU: 1280, Table: 51871, Mark: 0x5967, CgroupPath: nstest.OwnCgroup(t),
 	}
 }
 
 func TestCreateTunRemovesLeftover(t *testing.T) {
-	if !inNetns(t) {
+	if !nstest.InNetns(t) {
 		return
 	}
 	if err := netlink.LinkAdd(&netlink.Dummy{LinkAttrs: netlink.LinkAttrs{Name: "yggtun0"}}); err != nil {
@@ -40,10 +41,10 @@ func TestCreateTunRemovesLeftover(t *testing.T) {
 }
 
 func TestConfigureThenRollbackRestoresRoutes(t *testing.T) {
-	if !inNetns(t) {
+	if !nstest.InNetns(t) {
 		return
 	}
-	before := snapshot(t)
+	before := nstest.Snapshot(t)
 	f, err := CreateTun("yggtun0")
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +54,7 @@ func TestConfigureThenRollbackRestoresRoutes(t *testing.T) {
 	if err := Configure(tx, params(t)); err != nil {
 		t.Fatal(err)
 	}
-	during := snapshot(t)
+	during := nstest.Snapshot(t)
 	if during == before {
 		t.Fatal("Configure changed nothing")
 	}
@@ -66,16 +67,16 @@ func TestConfigureThenRollbackRestoresRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	if after := snapshot(t); after != before {
+	if after := nstest.Snapshot(t); after != before {
 		t.Fatalf("rollback did not restore the state\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 
 func TestRecoverFromRestoresRoutes(t *testing.T) {
-	if !inNetns(t) {
+	if !nstest.InNetns(t) {
 		return
 	}
-	before := snapshot(t)
+	before := nstest.Snapshot(t)
 	f, err := CreateTun("yggtun0")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +94,7 @@ func TestRecoverFromRestoresRoutes(t *testing.T) {
 	if err := RecoverFrom(saved); err != nil {
 		t.Fatal(err)
 	}
-	if after := snapshot(t); after != before {
+	if after := nstest.Snapshot(t); after != before {
 		t.Fatalf("recovery did not restore the state\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 	// recovering twice is harmless (steps may already be gone)
@@ -103,7 +104,7 @@ func TestRecoverFromRestoresRoutes(t *testing.T) {
 }
 
 func TestConfigureOmitsIPv6WhenClientIP6Invalid(t *testing.T) {
-	if !inNetns(t) {
+	if !nstest.InNetns(t) {
 		return
 	}
 	f, err := CreateTun("yggtun0")
@@ -118,13 +119,13 @@ func TestConfigureOmitsIPv6WhenClientIP6Invalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if s := snapshot(t); contains(s, "2001:db8::10") {
+	if s := nstest.Snapshot(t); contains(s, "2001:db8::10") {
 		t.Fatalf("IPv6 client address present:\n%s", s)
 	}
 }
 
 func TestConfigureFailsWithoutCgroup(t *testing.T) {
-	if !inNetns(t) {
+	if !nstest.InNetns(t) {
 		return
 	}
 	f, _ := CreateTun("yggtun0")
