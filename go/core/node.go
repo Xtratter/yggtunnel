@@ -1,6 +1,6 @@
 // Package main is the native core of YggTunnel: a Yggdrasil node that the
 // Android app drives through JNI (see jni.go). Built as libygg.so.
-package main
+package core
 
 import (
 	"encoding/hex"

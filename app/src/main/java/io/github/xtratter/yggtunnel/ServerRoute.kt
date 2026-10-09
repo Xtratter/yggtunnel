@@ -1,7 +1,7 @@
 package io.github.xtratter.yggtunnel
 
 /**
- * What the log of a server call says about the way to the server (go/setup.go dialSSH): when the server's own
+ * What the log of a server call says about the way to the server (go/core/setup.go dialSSH): when the server's own
  * address did not answer, the call went through Yggdrasil. No Android here: tested.
  */
 sealed interface ServerRoute {

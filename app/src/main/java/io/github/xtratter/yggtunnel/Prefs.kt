@@ -200,7 +200,7 @@ class Prefs(ctx: Context) {
         get() = p.getString("server_link", "tls")!!.takeIf { it in LINKS } ?: "tls"
         set(v) = p.edit().putString("server_link", v).apply()
 
-    /** Links to the server for the tunnel (go/lanes.go): 1 — the node's own only; more — extra nodes, each with its own TLS link. */
+    /** Links to the server for the tunnel (go/core/lanes.go): 1 — the node's own only; more — extra nodes, each with its own TLS link. */
     var lanes: Int
         get() = p.getInt("server_lanes", 1).takeIf { it in LANES } ?: 1
         set(v) = p.edit().putInt("server_lanes", v).apply()
@@ -215,7 +215,7 @@ class Prefs(ctx: Context) {
         get() = p.getBoolean("full_tunnel", true)
         set(v) = p.edit().putBoolean("full_tunnel", v).apply()
 
-    /** The set-up server's result (go/server.sh), when the full tunnel should be used. */
+    /** The set-up server's result (go/core/server.sh), when the full tunnel should be used. */
     val tunnelServer: JSONObject?
         get() = if (fullTunnel) server?.optJSONObject("result") else null
 

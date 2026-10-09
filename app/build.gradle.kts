@@ -41,8 +41,8 @@ android {
 val buildGo by tasks.registering(Exec::class) {
     val goDir = rootProject.file("go")
     onlyIf { !project.hasProperty("skipGo") }
-    // *.sh too: server.sh and the other scripts are embedded into the library (go:embed)
-    inputs.files(fileTree(goDir) { include("*.go", "*.sh", "go.mod", "go.sum", "third_party/**/*.go") })
+    // core/*.sh: server.sh and the other scripts are embedded into the library (go:embed)
+    inputs.files(fileTree(goDir) { include("*.go", "core/**/*.go", "core/*.sh", "go.mod", "go.sum", "third_party/**/*.go") })
     abis.forEach { outputs.file("src/main/jniLibs/$it/libygg.so") }
     commandLine(listOf("bash", goDir.resolve("build.sh").path) + abis)
 }

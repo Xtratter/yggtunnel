@@ -9,14 +9,14 @@ object Native {
     /**
      * Starts the node; [peers] — URIs separated by whitespace. Auto-pick keeps the [keep] fastest
      * (0 — all) plus [pinned] (the server's own peers, "" — none); [serverOnly] — while a pinned peer is up,
-     * all others are parked (go/peers.go). Returns the Yggdrasil address.
+     * all others are parked (go/core/peers.go). Returns the Yggdrasil address.
      */
     external fun start(config: String, peers: String, keep: Int, pinned: String, serverOnly: Boolean): String
     /** MTU of the Yggdrasil interface, after [start]. */
     external fun mtu(): Int
     /** Hands the TUN fd over to Go (Go closes it on [stop]). Returns "" or an error. */
     external fun attachTun(fd: Int): String
-    /** Full tunnel: TUN → WireGuard inside Yggdrasil to the server (config JSON: go/tunnel.go TunnelConfig). */
+    /** Full tunnel: TUN → WireGuard inside Yggdrasil to the server (config JSON: go/core/tunnel.go TunnelConfig). */
     external fun attachTunnel(fd: Int, config: String): String
     external fun stop()
     external fun retryPeers()
@@ -27,7 +27,7 @@ object Native {
 
     /** A new WireGuard key pair, JSON {private, public}. */
     external fun wgKeyPair(): String
-    /** Starts the server setup over SSH in the background (params: see go/setup.go SetupParams). Returns "" or an error. */
+    /** Starts the server setup over SSH in the background (params: see go/core/setup.go SetupParams). Returns "" or an error. */
     external fun setupStart(params: String): String
     /** Setup state JSON: running, log, hostKey, result, error. */
     external fun setupStatus(): String

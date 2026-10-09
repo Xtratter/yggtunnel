@@ -9,7 +9,7 @@ import android.widget.ScrollView
 import io.github.xtratter.uikit.M3
 import org.json.JSONObject
 
-/** Runs one of the embedded server scripts over SSH (go/setup.go) with a live log in a dialog. */
+/** Runs one of the embedded server scripts over SSH (go/core/setup.go) with a live log in a dialog. */
 object SetupRunner {
     /** After a full setup by password: the app's own SSH key the server now accepts ("" — none). */
     @Volatile var lastSshKey = ""

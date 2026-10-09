@@ -160,7 +160,7 @@ class YggVpnService : VpnService() {
                     // (no IPv4 address/route in the VPN means "block the family").
                     b.addRoute("200::", 7).setMtu(Native.mtu().coerceIn(1280, 65535)).allowFamily(OsConstants.AF_INET)
                 } else {
-                    // Everything through the server; Yggdrasil addresses still go straight into Yggdrasil (go/tunnel.go).
+                    // Everything through the server; Yggdrasil addresses still go straight into Yggdrasil (go/core/tunnel.go).
                     b.setMtu(1280)
                         .addAddress(srv.getString("clientIp4"), 32)
                         .addRoute("0.0.0.0", 0).addRoute("::", 0)

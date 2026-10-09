@@ -178,7 +178,7 @@ class ServerUi(private val a: MainActivity) {
             val profile = JSONObject()
                 .put("host", h).put("port", pt).put("user", user.text.toString().trim())
             if (byPassword) {
-                // by password: no key until the setup adds the app's own (go/setup.go installKey)
+                // by password: no key until the setup adds the app's own (go/core/setup.go installKey)
                 profile.put("password", password.text.toString().ifEmpty { oldPassword })
             } else {
                 profile.put("key", if (newKey) key.text.toString().trim() else oldKey)
