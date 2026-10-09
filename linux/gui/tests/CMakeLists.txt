@@ -13,4 +13,5 @@ ygg_test(tst_controller fakedaemon.cpp)
 ygg_test(tst_window fakedaemon.cpp)
 target_link_libraries(tst_window PRIVATE Qt6::Quick Qt6::QuickControls2)
 target_compile_definitions(tst_window PRIVATE
-    YGG_QML_DIR="${CMAKE_SOURCE_DIR}/qml" SHOTS_DIR="${CMAKE_BINARY_DIR}/shots")
+    YGG_QML_DIR="${CMAKE_SOURCE_DIR}/qml" YGG_QM_FILE="${CMAKE_BINARY_DIR}/yggtunnel_ru.qm" SHOTS_DIR="${CMAKE_BINARY_DIR}/shots")
+add_dependencies(tst_window release_translations)

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=YggTunnel
+GenericName=Yggdrasil tunnel
+GenericName[ru]=Туннель через Yggdrasil
+Comment=Connect to your own server through the Yggdrasil network
+Comment[ru]=Подключение к вашему серверу через сеть Yggdrasil
+Exec=yggtunnel-gui
+Icon=yggtunnel
+Terminal=false
+Categories=Network;

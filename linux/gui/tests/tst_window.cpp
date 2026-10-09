@@ -10,6 +10,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QTranslator>
 #include <memory>
 
 #include "controller.h"
@@ -313,6 +314,26 @@ private slots:
         a.item("logTabs")->setProperty("currentIndex", 1);
         QTRY_COMPARE(a.text("nodeLogText"), QString("node log line"));
         a.shot("log.png");
+    }
+    void russianTranslationIsUsed() {
+        QTranslator tr;
+        QVERIFY2(tr.load(QString(YGG_QM_FILE)), "yggtunnel_ru.qm is not built");
+        QVERIFY(QCoreApplication::installTranslator(&tr));
+        {
+            App a(sock());
+            a.state = "connected";
+            QTRY_COMPARE(a.text("statusLabel"), QString("Подключено"));
+            QCOMPARE(a.text("primaryButton"), QString("Отключить"));
+            QCOMPARE(a.text("panicButton"), QString("Аварийно отключить всё"));
+            QTRY_VERIFY(a.visible("peersCard"));
+            a.shot("connected-ru.png");
+        }
+        {
+            App a(dir.filePath("none-ru.sock"), false);
+            QTRY_COMPARE(a.text("statusLabel"), QString("Демон недоступен"));
+            QTRY_VERIFY(a.text("hintLabel").contains("сокет не найден"));
+        }
+        QCoreApplication::removeTranslator(&tr);
     }
     void grabsImportDialogScreenshot() {
         App a(sock());

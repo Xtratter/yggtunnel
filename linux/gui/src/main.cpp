@@ -1,4 +1,6 @@
 #include <QGuiApplication>
+#include <QLocale>
+#include <QTranslator>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -14,6 +16,10 @@ int main(int argc, char *argv[])
     app.setApplicationVersion(YGG_VERSION);
     app.setDesktopFileName("yggtunnel-gui");
     QQuickStyle::setStyle("Material");
+
+    QTranslator translator; // Russian when the system language is Russian, English otherwise
+    if (translator.load(QLocale(), "yggtunnel", "_", ":/i18n"))
+        app.installTranslator(&translator);
 
     const QString socket = qEnvironmentVariableIsSet("YGGTUNNEL_SOCKET")
         ? qEnvironmentVariable("YGGTUNNEL_SOCKET")

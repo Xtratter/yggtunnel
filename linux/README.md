@@ -3,11 +3,13 @@
 [Русский](README.ru.md) · **English**
 
 A client for your own server through the [Yggdrasil](https://yggdrasil-network.github.io/) network, the same
-Go core and the same `yggtunnel://` profiles as the Android app. Status: **0.1.0, command line and daemon**;
-the Qt window, kill switch and split routing are the next steps.
+Go core and the same `yggtunnel://` profiles as the Android app. Status: **0.2.0, daemon, command line and a Qt window**;
+kill switch and split routing are the next steps.
 
 ```
-yggtunnelctl ──unix socket (JSON)──▶ yggtunneld (root, systemd)
+yggtunnel-gui ──┐
+                ├─ unix socket (JSON) ─▶ yggtunneld (root, systemd)
+yggtunnelctl ───┘
                                        ├─ core     Yggdrasil + WireGuard (shared with Android, go/core)
                                        ├─ netconf  TUN, addresses, routes, ip rules, traffic mark
                                        ├─ dns      systemd-resolved, on the tunnel link only
@@ -28,6 +30,21 @@ go vet ./... && go test ./...
 Network tests run inside a throw-away user+network namespace (`unshare -rn`), so they never touch the
 host network; they are skipped with a message where namespaces are unavailable.
 
+### The window
+
+Needs Qt 6 (`qt6-declarative`, `qt6-tools`), CMake and Ninja.
+
+```sh
+cmake -S linux/gui -B linux/gui/build -G Ninja && cmake --build linux/gui/build
+ctest --test-dir linux/gui/build        # offscreen; writes screenshots to linux/gui/build/shots
+linux/gui/build/yggtunnel-gui
+```
+
+The window shows the state, the server and the peers, connects and disconnects, imports a profile (paste a
+link or open a file), shows the connection history and the node log, and has «Disable everything»
+(`panic`). It talks only to the daemon, so your user must be in the group `yggtunnel`. English and Russian
+follow the system language; `YGGTUNNEL_SOCKET` overrides the socket path.
+
 ## Install (from source)
 
 ```sh
@@ -36,6 +53,7 @@ sudo install -m644 packaging/yggtunneld.service /etc/systemd/system/
 sudo install -m644 packaging/io.github.xtratter.yggtunnel.policy /usr/share/polkit-1/actions/
 sudo groupadd -f yggtunnel && sudo usermod -aG yggtunnel "$USER"   # log in again afterwards
 sudo systemctl enable --now yggtunneld
+sudo cmake --install linux/gui/build --prefix /usr   # the window, its menu entry and icon
 ```
 
 ## Use
@@ -68,5 +86,5 @@ instead of applying them.
 
 ## Not yet
 
-The window, kill switch, split routing (by app and by subnet or domain), peer auto-pick settings, a package
+Kill switch, split routing (by app and by subnet or domain), peer auto-pick and lane settings in the window, a tray icon, a package
 (PKGBUILD). See `docs/superpowers/specs/2026-10-09-linux-client-design.md`.
