@@ -16,7 +16,7 @@
 #include "daemonclient.h"
 #include "fakedaemon.h"
 
-static QJsonObject statusData(const QString &state, bool profile = true, bool node = false, const QString &error = {})
+static QJsonObject statusData(const QString &state, bool profile = true, bool node = false, const QString &error = {}, bool longUri = false)
 {
     QJsonObject o{{"state", state}};
     o["profile"] = profile ? QJsonObject{{"name", "example"}, {"serverYgg", "200:db8::2"}, {"privateKey", "…abcd"}} : QJsonObject();
@@ -26,11 +26,50 @@ static QJsonObject statusData(const QString &state, bool profile = true, bool no
         QJsonArray peers;
         peers << QJsonObject{{"uri", "tls://192.0.2.1:1234"}, {"up", true}, {"latencyMs", 42.5}}
               << QJsonObject{{"uri", "tls://192.0.2.2:1234"}, {"up", false}, {"error", "connection refused"}}
-              << QJsonObject{{"uri", "wss://192.0.2.3:443/path?priority=1"}, {"up", true}, {"latencyMs", 80}};
+              << QJsonObject{{"uri", longUri ? QString("wss://very-long-peer-name-") + QString(300, 'a') + ".example.net:443/path?priority=1" : QString("wss://192.0.2.3:443/path?priority=1")},
+                         {"up", true}, {"latencyMs", 80}};
+        if (longUri)
+            peers[1] = QJsonObject{{"uri", "tls://192.0.2.2:1234"}, {"up", false}, {"error", QString("connection refused: ") + QString(400, 'e')}};
         o["node"] = QJsonObject{{"running", true}, {"address", "200:db8::1"}, {"peers", peers},
                                 {"tunnel", QJsonObject{{"handshakeAgo", 12}}}};
     }
     return o;
+}
+
+static void collectTexts(QObject *o, QStringList &out)
+{
+    const QVariant t = o->property("text");
+    if (t.typeId() == QMetaType::QString)
+        out << t.toString();
+    for (QObject *c : o->children())
+        collectTexts(c, out);
+    if (auto *item = qobject_cast<QQuickItem *>(o))
+        for (QQuickItem *c : item->childItems())
+            collectTexts(c, out);
+}
+
+// Items made by a Repeater or shown in a Popup hang in the visual tree, not under their QObject
+// parent, so search both trees.
+static void findAll(QObject *o, const QString &name, QList<QObject *> &out, QSet<QObject *> &seen)
+{
+    if (!o || seen.contains(o))
+        return;
+    seen.insert(o);
+    if (o->objectName() == name)
+        out << o;
+    for (QObject *c : o->children())
+        findAll(c, name, out, seen);
+    if (auto *item = qobject_cast<QQuickItem *>(o))
+        for (QQuickItem *c : item->childItems())
+            findAll(c, name, out, seen);
+}
+
+static QList<QObject *> findAll(QObject *root, const QString &name)
+{
+    QList<QObject *> out;
+    QSet<QObject *> seen;
+    findAll(root, name, out, seen);
+    return out;
 }
 
 // A running window on top of a fake daemon.
@@ -43,13 +82,19 @@ struct App {
     QString state = "off";
     bool profile = true;
     QString error;
+    bool longUri = false;
+    QString importError;
 
     App(const QString &sockPath, bool listen = true) {
-        daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *, QString *) -> QJsonValue {
+        daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *ok, QString *err) -> QJsonValue {
             if (cmd == "status")
-                return statusData(state, profile, state == "connected", error);
+                return statusData(state, profile, state == "connected", error, longUri);
             if (cmd == "log")
                 return QString("node log line");
+            if (cmd == "import" && !importError.isEmpty()) {
+                *ok = false;
+                *err = importError;
+            }
             return QJsonValue();
         };
         if (listen)
@@ -63,12 +108,13 @@ struct App {
         win = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
         client->start();
     }
-    QObject *item(const char *name) const { return win ? win->findChild<QObject *>(name) : nullptr; }
+    QObject *item(const char *name) const { return win ? findAll(win, name).value(0) : nullptr; }
+    QList<QObject *> items(const char *name) const { return win ? findAll(win, name) : QList<QObject *>(); }
     QString text(const char *name) const { QObject *o = item(name); return o ? o->property("text").toString() : QString(); }
     bool visible(const char *name) const { QObject *o = item(name); return o && o->property("visible").toBool(); }
     void shot(const QString &file) {
         QDir().mkpath(SHOTS_DIR);
-        QTest::qWait(400); // let the animations settle
+        QTest::qWait(1200); // let the animations settle
         const QImage img = win->grabWindow();
         QVERIFY2(!img.isNull(), "grabWindow returned an empty image");
         QVERIFY(img.save(QString(SHOTS_DIR) + "/" + file));
@@ -162,6 +208,122 @@ private slots:
         a.error = "step failed";
         QTRY_VERIFY(a.visible("errorLabel"));
         QVERIFY(a.text("errorLabel").contains("step failed"));
+    }
+    void peersCardListsPeers() {
+        App a(sock());
+        a.state = "connected";
+        QTRY_COMPARE(a.text("statusLabel"), QString("Connected"));
+        QTRY_VERIFY(a.visible("peersCard"));
+        auto uris = a.items("peerUri");
+        QTRY_COMPARE((uris = a.items("peerUri")).size(), 3);
+        QCOMPARE(uris[0]->property("text").toString(), QString("tls://192.0.2.1:1234"));
+        QVERIFY(a.text("peerLatency").contains("43")); // 42.5 ms, rounded
+        const auto errs = a.items("peerError");
+        QStringList shown; // every peer has an error label; only the failed one is visible
+        for (QObject *e : errs)
+            if (e->property("visible").toBool())
+                shown << e->property("text").toString();
+        QCOMPARE(shown, QStringList{"connection refused"});
+        QVERIFY(!a.visible("peersEmpty"));
+    }
+    void peersCardHiddenWhenOff() {
+        App a(sock());
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QVERIFY(!a.visible("peersCard"));
+    }
+    void longUriIsElided() {
+        App a(sock());
+        a.state = "connected";
+        a.longUri = true;
+        QTRY_COMPARE(a.text("statusLabel"), QString("Connected"));
+        QTRY_VERIFY(a.item("peersCard") && !a.items("peerUri").isEmpty());
+        auto *card = qobject_cast<QQuickItem *>(a.item("peersCard"));
+        for (QObject *o : a.items("peerUri")) {
+            auto *label = qobject_cast<QQuickItem *>(o);
+            const QPointF p = label->mapToItem(card, QPointF(label->width(), 0));
+            QVERIFY2(p.x() <= card->width() + 0.5, qPrintable(QString("label right edge %1 > card width %2").arg(p.x()).arg(card->width())));
+        }
+        for (QObject *o : a.items("peerError")) {
+            auto *label = qobject_cast<QQuickItem *>(o);
+            QVERIFY(label->mapToItem(card, QPointF(label->width(), 0)).x() <= card->width() + 0.5);
+        }
+    }
+    void importDialogShowsDaemonError() {
+        App a(sock());
+        a.importError = "the link is damaged (bad base64)";
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QMetaObject::invokeMethod(a.item("importDialog"), "open");
+        QTRY_VERIFY(a.item("linkField"));
+        a.item("linkField")->setProperty("text", "garbage");
+        QMetaObject::invokeMethod(a.item("importDialog"), "submit");
+        QTRY_VERIFY(a.visible("importError"));
+        QCOMPARE(a.text("importError"), QString("the link is damaged (bad base64)"));
+        QVERIFY(a.item("importDialog")->property("visible").toBool()); // stays open
+        QTest::qWait(600); // the opening animation ends meanwhile and must not clear the message
+        QVERIFY(a.visible("importError"));
+    }
+    void importDialogClosesOnSuccess() {
+        App a(sock());
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QMetaObject::invokeMethod(a.item("importDialog"), "open");
+        QTRY_VERIFY(a.item("linkField"));
+        a.item("linkField")->setProperty("text", "yggtunnel://import#abc");
+        QMetaObject::invokeMethod(a.item("importDialog"), "submit");
+        QTRY_VERIFY(!a.item("importDialog")->property("visible").toBool());
+        QVERIFY(a.daemon.received.contains("import"));
+    }
+    void importButtonOpensDialogWhenNoProfile() {
+        App a(sock());
+        a.profile = false;
+        QTRY_COMPARE(a.text("primaryButton"), QString("Import a profile"));
+        QMetaObject::invokeMethod(a.item("primaryButton"), "clicked");
+        QTRY_VERIFY(a.item("importDialog")->property("visible").toBool());
+    }
+    void logTabsShowHistoryAndNodeLog() {
+        App a(sock());
+        a.state = "connected";
+        QTRY_COMPARE(a.text("statusLabel"), QString("Connected"));
+        QMetaObject::invokeMethod(a.item("logButton"), "clicked");
+        QTRY_VERIFY(a.visible("logPage"));
+        QTRY_VERIFY(a.text("historyText").contains("connected"));
+        a.item("logTabs")->setProperty("currentIndex", 1);
+        QTRY_COMPARE(a.text("nodeLogText"), QString("node log line"));
+    }
+    void noPrivateKeyInUi() {
+        App a(sock());
+        a.state = "connected";
+        QTRY_COMPARE(a.text("statusLabel"), QString("Connected"));
+        QMetaObject::invokeMethod(a.item("importDialog"), "open");
+        QMetaObject::invokeMethod(a.item("logButton"), "clicked");
+        QTRY_VERIFY(a.visible("logPage"));
+        QTest::qWait(300);
+        QStringList texts;
+        collectTexts(a.win, texts);
+        QVERIFY2(texts.size() > 10, "the walk found almost no text; the helper is broken");
+        QVERIFY2(!texts.join('\n').contains("abcd"), "the private key tail is visible somewhere in the UI");
+    }
+    void grabsPeersAndLogScreenshots() {
+        App a(sock());
+        a.state = "connected";
+        a.longUri = true;
+        QTRY_VERIFY(a.items("peerUri").size() == 3);
+        a.shot("peers.png");
+        QMetaObject::invokeMethod(a.item("logButton"), "clicked");
+        QTRY_VERIFY(a.visible("logPage"));
+        a.item("logTabs")->setProperty("currentIndex", 1);
+        QTRY_COMPARE(a.text("nodeLogText"), QString("node log line"));
+        a.shot("log.png");
+    }
+    void grabsImportDialogScreenshot() {
+        App a(sock());
+        a.importError = "the link is damaged (bad base64)";
+        QTRY_COMPARE(a.text("statusLabel"), QString("Off"));
+        QMetaObject::invokeMethod(a.item("importDialog"), "open");
+        QTRY_VERIFY(a.item("linkField"));
+        a.item("linkField")->setProperty("text", "yggtunnel://import#not-a-real-link");
+        QMetaObject::invokeMethod(a.item("importDialog"), "submit");
+        QTRY_VERIFY(a.visible("importError"));
+        a.shot("import.png");
     }
     void grabsScreenshots() {
         {

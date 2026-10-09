@@ -16,6 +16,7 @@ ApplicationWindow {
     Material.accent: Material.Teal
 
     signal importRequested()
+    onImportRequested: importDialog.open()
 
     readonly property string statusText: {
         switch (ctl.state) {
@@ -95,6 +96,30 @@ ApplicationWindow {
                 }
                 onPanicClicked: panicDialog.open()
             }
+
+            PeersCard {
+                Layout.fillWidth: true
+                visible: ctl.daemonReachable && (ctl.state === "starting" || ctl.state === "connected" || ctl.state === "reconnecting")
+                peers: ctl.peers
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                visible: ctl.daemonReachable
+                spacing: 8
+                ActionButton {
+                    objectName: "logButton"
+                    Layout.fillWidth: true
+                    text: qsTr("Log")
+                    onClicked: logPage.open()
+                }
+                ActionButton {
+                    objectName: "importButton"
+                    Layout.fillWidth: true
+                    text: qsTr("Import a profile")
+                    onClicked: importDialog.open()
+                }
+            }
         }
     }
 
@@ -106,12 +131,21 @@ ApplicationWindow {
         z: 10
     }
 
+    ImportDialog { id: importDialog }
+    LogPage { id: logPage }
+
     Dialog {
         id: panicDialog
         title: qsTr("Disable everything?")
         modal: true
         anchors.centerIn: parent
         standardButtons: Dialog.Yes | Dialog.No
+        background: Rectangle {
+            radius: 24
+            color: Material.dialogColor
+            border.width: 1
+            border.color: Qt.alpha(Material.foreground, 0.12)
+        }
         Label {
             width: 300
             wrapMode: Text.WordWrap

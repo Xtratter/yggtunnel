@@ -14,7 +14,7 @@ target_link_libraries(ygg_core PUBLIC Qt6::Core Qt6::Network)
 
 add_executable(yggtunnel-gui src/main.cpp)
 qt_add_resources(yggtunnel-gui qml PREFIX "/qml" BASE qml
-    FILES qml/Main.qml qml/StatusCard.qml qml/Island.qml qml/ActionButton.qml)
+    FILES qml/Main.qml qml/StatusCard.qml qml/Island.qml qml/ActionButton.qml qml/PeersCard.qml qml/ImportDialog.qml qml/LogPage.qml)
 target_link_libraries(yggtunnel-gui PRIVATE ygg_core Qt6::Gui Qt6::Quick Qt6::QuickControls2)
 target_compile_definitions(yggtunnel-gui PRIVATE YGG_VERSION="${PROJECT_VERSION}")
 
