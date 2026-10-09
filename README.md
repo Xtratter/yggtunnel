@@ -6,6 +6,8 @@
 
 [Русский](README.ru.md) · **English**
 
+**Linux:** a desktop client (daemon + command line, window in progress) is being built in [`linux/`](linux/README.md).
+
 An Android app that reaches **your own server through the [Yggdrasil](https://yggdrasil-network.github.io/) network**
 and, step by step, turns it into a full VPN — in the spirit of AmneziaVPN, but with Yggdrasil as the transport.
 The phone does not talk to your server directly: it joins Yggdrasil through public peers (TLS, QUIC, WebSocket),
