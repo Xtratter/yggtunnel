@@ -12,12 +12,15 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Xtratter/yggtunnel/go/core"
 	"github.com/Xtratter/yggtunnel/linux/internal/auth"
+	"github.com/Xtratter/yggtunnel/linux/internal/dns"
 	"github.com/Xtratter/yggtunnel/linux/internal/ipc"
 	"github.com/Xtratter/yggtunnel/linux/internal/netconf"
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
+	"github.com/Xtratter/yggtunnel/linux/internal/splitcfg"
 	"github.com/Xtratter/yggtunnel/linux/internal/store"
 	"github.com/Xtratter/yggtunnel/linux/internal/version"
 )
@@ -35,7 +38,13 @@ type Core interface {
 // Net is the seam over netconf and dns. Up registers every change in tx and returns the TUN device.
 // Recover undoes the steps recorded by a process that died.
 type Net interface {
-	Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.File, error)
+	Up(tx *netconf.Tx, p netconf.Params, servers []netip.Addr, o dns.Options) (*os.File, error)
+	// SplitNames puts the addresses of the listed domain names into the firewall sets (replacing the old ones).
+	SplitNames(addrs []netip.Addr) error
+	// SplitSubnets replaces the listed subnets while connected.
+	SplitSubnets(p netconf.SplitParams) error
+	// UpdateDNSDomains changes the names that are asked through the tunnel's DNS (mode "only").
+	UpdateDNSDomains(domains []string) error
 	Recover(prev store.PrevState) error
 	// Clear removes every table the daemon may have left, by name (the panic button's safety net).
 	Clear() error
@@ -76,11 +85,19 @@ type Daemon struct {
 	lastErr string
 	tx      *netconf.Tx
 	ksArmed bool // guarded by mu
+
+	// ResolveHost looks up the listed domain names; the system resolver by default.
+	ResolveHost func(ctx context.Context, host string) ([]netip.Addr, error)
+	watcher     *splitWatcher // running while connected in mode exclude/only
+	splitMode   string        // the mode applied by the current connection; "" when not connected (guarded by mu)
 }
 
 // New creates a daemon in the Off state.
 func New(st *store.Store, c Core, n Net, emit func(ipc.Event)) *Daemon {
-	return &Daemon{st: st, c: c, n: n, emit: emit, state: Off, GenConfig: core.GenerateConfig, Lookup: net.LookupHost}
+	return &Daemon{st: st, c: c, n: n, emit: emit, state: Off, GenConfig: core.GenerateConfig, Lookup: net.LookupHost,
+		ResolveHost: func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}}
 }
 
 // Handle implements ipc.Handler.
@@ -131,7 +148,21 @@ func (d *Daemon) status() Status {
 	s.Settings = d.st.Settings()
 	d.mu.Lock()
 	s.KillSwitchActive = d.ksArmed
+	mode, w := d.splitMode, d.watcher
 	d.mu.Unlock()
+	if mode != "" {
+		s.SplitStatus.Mode = mode
+		if w != nil {
+			n, at, err := w.Status()
+			s.SplitStatus.Resolved = n
+			if !at.IsZero() {
+				s.SplitStatus.ResolvedAt = at.Format(time.RFC3339)
+			}
+			if err != nil {
+				s.SplitStatus.ResolveError = err.Error()
+			}
+		}
+	}
 	return s
 }
 
@@ -174,6 +205,11 @@ func (d *Daemon) up() error {
 	if err != nil {
 		return err
 	}
+	settings := d.st.Settings()
+	split, _, err := splitcfg.Normalize(settings.Split)
+	if err != nil {
+		return fmt.Errorf("routing settings: %w", err)
+	}
 	d.setState(Starting, "")
 	fail := func(err error) error {
 		d.teardown()
@@ -198,7 +234,8 @@ func (d *Daemon) up() error {
 	if err != nil {
 		return fail(err)
 	}
-	p := netconf.Params{IfName: ifName, MTU: tunnelMTU, Table: table, Mark: mark, CgroupPath: d.CgroupPath}
+	p := netconf.Params{IfName: ifName, MTU: tunnelMTU, Table: table, Mark: mark, CgroupPath: d.CgroupPath,
+		Split: netconf.SplitParams{Mode: split.Mode, Subnets: split.Subnets, Mark: mark}}
 	if p.YggAddr, err = netip.ParseAddr(yggStr); err != nil {
 		return fail(fmt.Errorf("node address %q: %w", yggStr, err))
 	}
@@ -211,7 +248,11 @@ func (d *Daemon) up() error {
 		}
 	}
 	d.tx = netconf.NewTx(d.rec)
-	f, err := d.n.Up(d.tx, p, dnsServers)
+	dnsOpts := dns.Options{DefaultRoute: true}
+	if split.Mode == "only" { // only the listed names are asked through the tunnel's DNS
+		dnsOpts = dns.Options{Domains: split.Domains}
+	}
+	f, err := d.n.Up(d.tx, p, dnsServers, dnsOpts)
 	if err != nil {
 		return fail(err)
 	}
@@ -225,6 +266,16 @@ func (d *Daemon) up() error {
 		syscall.Close(fd)
 		return fail(err)
 	}
+	d.mu.Lock()
+	d.splitMode = split.Mode
+	d.mu.Unlock()
+	if split.Mode == "exclude" || split.Mode == "only" {
+		w := newSplitWatcher(d.ResolveHost, d.n.SplitNames)
+		d.mu.Lock()
+		d.watcher = w
+		d.mu.Unlock()
+		w.Start(split.Domains)
+	}
 	if s := d.st.Settings(); s.KillSwitch { // armed last: the tunnel carries traffic before anything is dropped
 		if err := d.armKillSwitch(s); err != nil {
 			return fail(fmt.Errorf("kill switch: %w", err))
@@ -235,7 +286,10 @@ func (d *Daemon) up() error {
 }
 
 func (d *Daemon) armKillSwitch(s store.Settings) error {
-	if err := d.n.KillSwitch(d.tx, true, netconf.KSParams{IfName: ifName, Mark: mark, AllowLAN: s.AllowLAN}); err != nil {
+	d.mu.Lock()
+	mode := d.splitMode
+	d.mu.Unlock()
+	if err := d.n.KillSwitch(d.tx, true, netconf.KSParams{IfName: ifName, Mark: mark, AllowLAN: s.AllowLAN, Mode: mode}); err != nil {
 		return err
 	}
 	d.mu.Lock()
@@ -261,11 +315,20 @@ func (d *Daemon) disarmKillSwitch() error {
 // running up/down, so a change made during `up` takes effect right after it.
 func (d *Daemon) set(args json.RawMessage) error {
 	var a struct {
-		KillSwitch *bool `json:"killSwitch"`
-		AllowLAN   *bool `json:"allowLan"`
+		KillSwitch *bool            `json:"killSwitch"`
+		AllowLAN   *bool            `json:"allowLan"`
+		Split      *splitcfg.Config `json:"split"`
 	}
-	if err := json.Unmarshal(args, &a); err != nil || (a.KillSwitch == nil && a.AllowLAN == nil) {
-		return errors.New(`set needs {"killSwitch": bool} and/or {"allowLan": bool}`)
+	if err := json.Unmarshal(args, &a); err != nil || (a.KillSwitch == nil && a.AllowLAN == nil && a.Split == nil) {
+		return errors.New(`set needs {"killSwitch": bool}, {"allowLan": bool} and/or {"split": {...}}`)
+	}
+	var split splitcfg.Normalized
+	var canon splitcfg.Config
+	if a.Split != nil {
+		var err error
+		if split, canon, err = splitcfg.Normalize(*a.Split); err != nil {
+			return err
+		}
 	}
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
@@ -276,18 +339,54 @@ func (d *Daemon) set(args json.RawMessage) error {
 	if a.AllowLAN != nil {
 		s.AllowLAN = *a.AllowLAN
 	}
-	if cur := d.cur(); cur == Connected || cur == Reconnecting {
-		var err error
-		if s.KillSwitch {
-			err = d.armKillSwitch(s)
-		} else {
-			err = d.disarmKillSwitch()
+	cur := d.cur()
+	if a.Split != nil {
+		if canon.Mode != s.Split.Mode && cur != Off {
+			return errors.New("disconnect first to change the routing mode")
 		}
-		if err != nil {
-			return err
+		s.Split = canon
+	}
+	if cur == Connected || cur == Reconnecting {
+		if a.KillSwitch != nil || a.AllowLAN != nil {
+			var err error
+			if s.KillSwitch {
+				err = d.armKillSwitch(s)
+			} else {
+				err = d.disarmKillSwitch()
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if a.Split != nil {
+			if err := d.applySplitLive(split); err != nil {
+				return err
+			}
 		}
 	}
 	return d.st.SaveSettings(s)
+}
+
+// applySplitLive changes the lists of the running connection (the mode cannot change while up).
+func (d *Daemon) applySplitLive(n splitcfg.Normalized) error {
+	d.mu.Lock()
+	mode, w := d.splitMode, d.watcher
+	d.mu.Unlock()
+	if mode != "exclude" && mode != "only" {
+		return nil // mode all: the lists are only stored
+	}
+	if err := d.n.SplitSubnets(netconf.SplitParams{Mode: mode, Subnets: n.Subnets, Mark: mark}); err != nil {
+		return err
+	}
+	if mode == "only" {
+		if err := d.n.UpdateDNSDomains(n.Domains); err != nil {
+			return err
+		}
+	}
+	if w != nil {
+		w.SetDomains(n.Domains)
+	}
+	return nil
 }
 
 // teardown undoes the network changes and stops the core. Errors are logged by the caller's state
@@ -298,10 +397,15 @@ func (d *Daemon) teardown() error {
 		err = d.tx.Rollback()
 		d.tx = nil
 	}
-	d.c.Stop()
 	d.mu.Lock()
+	w := d.watcher
+	d.watcher, d.splitMode = nil, ""
 	d.ksArmed = false // the table went with the transaction
 	d.mu.Unlock()
+	if w != nil {
+		w.Stop()
+	}
+	d.c.Stop()
 	return err
 }
 

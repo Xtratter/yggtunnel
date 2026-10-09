@@ -28,6 +28,15 @@ type Status struct {
 
 	Settings         store.Settings `json:"settings"`
 	KillSwitchActive bool           `json:"killSwitchActive"` // armed right now (only while connected)
+	SplitStatus      SplitStatus    `json:"splitStatus"`
+}
+
+// SplitStatus describes split routing of the current connection.
+type SplitStatus struct {
+	Mode         string `json:"mode,omitempty"` // the mode applied; empty when not connected
+	Resolved     int    `json:"resolved"`       // addresses of the listed names currently in the firewall
+	ResolveError string `json:"resolveError,omitempty"`
+	ResolvedAt   string `json:"resolvedAt,omitempty"` // RFC 3339
 }
 
 func (d *Daemon) setState(s State, errText string) {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
+	"github.com/Xtratter/yggtunnel/linux/internal/splitcfg"
 )
 
 // Store is a state directory, root-owned and private.
@@ -140,12 +141,14 @@ func (s *Store) NodeConfig(gen func() (string, error)) (string, error) {
 type Settings struct {
 	KillSwitch bool `json:"killSwitch"` // drop traffic that bypasses the tunnel while connected
 	AllowLAN   bool `json:"allowLan"`   // with the kill switch: keep local-network traffic
+
+	Split splitcfg.Config `json:"split"` // which destinations use the tunnel
 }
 
 // Settings returns the saved options; defaults (kill switch off, local network allowed) when
 // nothing is saved or the file is damaged.
 func (s *Store) Settings() Settings {
-	def := Settings{AllowLAN: true}
+	def := Settings{AllowLAN: true, Split: splitcfg.Config{Mode: "all"}}
 	b, err := os.ReadFile(s.path("settings.json"))
 	if err != nil {
 		return def
@@ -153,6 +156,9 @@ func (s *Store) Settings() Settings {
 	v := def
 	if json.Unmarshal(b, &v) != nil {
 		return def
+	}
+	if v.Split.Mode == "" { // a file written before split routing existed
+		v.Split.Mode = "all"
 	}
 	return v
 }

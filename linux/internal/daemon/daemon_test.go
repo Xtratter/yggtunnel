@@ -11,8 +11,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Xtratter/yggtunnel/go/core"
+	"github.com/Xtratter/yggtunnel/linux/internal/dns"
 	"github.com/Xtratter/yggtunnel/linux/internal/ipc"
 	"github.com/Xtratter/yggtunnel/linux/internal/netconf"
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
@@ -65,19 +67,24 @@ func (f *fakeCore) MTU() int       { return 1280 }
 func (f *fakeCore) Log() string    { return "log line" }
 
 type fakeNet struct {
-	ksErr     error
-	ksUndoErr error // makes removing the kill switch fail
-	log       *calls
-	failAfter int // steps that succeed before Up fails (-1: never fail)
-	params    netconf.Params
-	dns       []netip.Addr
-	dir       string
-	recovered store.PrevState
+	dnsOpts    dns.Options
+	ksParams   netconf.KSParams
+	subnetsErr error
+	namesMu    sync.Mutex
+	lastNames  []netip.Addr
+	ksErr      error
+	ksUndoErr  error // makes removing the kill switch fail
+	log        *calls
+	failAfter  int // steps that succeed before Up fails (-1: never fail)
+	params     netconf.Params
+	dns        []netip.Addr
+	dir        string
+	recovered  store.PrevState
 }
 
-func (f *fakeNet) Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.File, error) {
+func (f *fakeNet) Up(tx *netconf.Tx, p netconf.Params, servers []netip.Addr, o dns.Options) (*os.File, error) {
 	f.log.add("net.up")
-	f.params, f.dns = p, dns
+	f.params, f.dns, f.dnsOpts = p, servers, o
 	for i, name := range []string{"a", "b", "c"} {
 		if f.failAfter >= 0 && i == f.failAfter {
 			return nil, errors.New("step failed")
@@ -92,7 +99,33 @@ func (f *fakeNet) Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.Fi
 	return os.Create(filepath.Join(f.dir, "tun"))
 }
 
+func (f *fakeNet) SplitNames(addrs []netip.Addr) error {
+	f.log.add(fmt.Sprintf("net.names:%d", len(addrs)))
+	f.namesMu.Lock()
+	f.lastNames = addrs
+	f.namesMu.Unlock()
+	return nil
+}
+
+// names is what the watcher last put into the firewall sets.
+func (f *fakeNet) names() []netip.Addr {
+	f.namesMu.Lock()
+	defer f.namesMu.Unlock()
+	return append([]netip.Addr(nil), f.lastNames...)
+}
+
+func (f *fakeNet) SplitSubnets(p netconf.SplitParams) error {
+	f.log.add(fmt.Sprintf("net.subnets:%d", len(p.Subnets)))
+	return f.subnetsErr
+}
+
+func (f *fakeNet) UpdateDNSDomains(domains []string) error {
+	f.log.add(fmt.Sprintf("net.dnsdomains:%d", len(domains)))
+	return nil
+}
+
 func (f *fakeNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
+	f.ksParams = p
 	if !on {
 		return tx.Undo("killswitch")
 	}
@@ -499,7 +532,7 @@ func TestShutdownWhenOffIsNoop(t *testing.T) {
 
 // I3: a failed recovery must keep the record, so that `panic` or the next start can retry.
 type failingRecover struct {
-	fakeNet
+	*fakeNet
 	err error
 }
 
@@ -507,7 +540,7 @@ func (f *failingRecover) Recover(p store.PrevState) error { f.log.add("net.recov
 
 func TestFailedRecoveryKeepsRecord(t *testing.T) {
 	r := newRig(t)
-	fr := &failingRecover{fakeNet: *r.n, err: errors.New("netlink busy")}
+	fr := &failingRecover{fakeNet: r.n, err: errors.New("netlink busy")}
 	r.d.n = fr
 	r.st.SavePrev(store.PrevState{Steps: []store.Step{{Kind: "rule"}}})
 	if err := r.d.Recover(); err == nil {
@@ -845,5 +878,234 @@ func TestSetWhileReconnectingApplies(t *testing.T) {
 	}
 	if r.log.String() != "net.ks:on(lan=true)" {
 		t.Fatalf("calls %s", r.log)
+	}
+}
+
+// ---- split routing -----------------------------------------------------------------------------
+
+type resolverStub struct {
+	mu    sync.Mutex
+	calls []string
+	ans   map[string][]netip.Addr
+}
+
+func (r *resolverStub) lookup(_ context.Context, host string) ([]netip.Addr, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, host)
+	return r.ans[host], nil
+}
+
+func (r *resolverStub) called(host string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, h := range r.calls {
+		if h == host {
+			return true
+		}
+	}
+	return false
+}
+
+func newSplitRig(t *testing.T) (*rig, *resolverStub) {
+	r := newRig(t)
+	rs := &resolverStub{ans: map[string][]netip.Addr{
+		"example.com": {netip.MustParseAddr("192.0.2.10"), netip.MustParseAddr("2001:db8::10")},
+		"example.net": {netip.MustParseAddr("192.0.2.20")},
+	}}
+	r.d.ResolveHost = rs.lookup
+	r.importSample(t)
+	return r, rs
+}
+
+func TestSplitDefaultsInStatus(t *testing.T) {
+	r := newRig(t)
+	s := r.status(t)
+	if s.Settings.Split.Mode != "all" || s.SplitStatus.Mode != "" {
+		t.Fatalf("settings %+v status %+v", s.Settings.Split, s.SplitStatus)
+	}
+}
+
+func TestSetSplitWhileOffStoresCanonicalForm(t *testing.T) {
+	r := newRig(t)
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.9/24"],"domains":["Example.COM."]}}`); err != nil {
+		t.Fatal(err)
+	}
+	sp := r.status(t).Settings.Split
+	if sp.Mode != "only" || len(sp.Subnets) != 1 || sp.Subnets[0] != "203.0.113.0/24" || sp.Domains[0] != "example.com" {
+		t.Fatalf("%+v", sp)
+	}
+	if r.log.String() != "" {
+		t.Fatalf("calls %s", r.log)
+	}
+}
+
+func TestSetSplitRejectsInvalidAndChangesNothing(t *testing.T) {
+	r := newRig(t)
+	r.set(t, `{"split":{"mode":"exclude","subnets":["203.0.113.0/24"]}}`)
+	for _, args := range []string{
+		`{"split":{"mode":"only","subnets":["0.0.0.0/0"]}}`,
+		`{"split":{"mode":"only","domains":["*.example.com"]}}`,
+		`{"split":{"mode":"sometimes"}}`,
+		`{"split":"all"}`,
+		`{"split":null}`,
+	} {
+		if err := r.set(t, args); err == nil {
+			t.Errorf("accepted %s", args)
+		}
+	}
+	sp := r.status(t).Settings.Split
+	if sp.Mode != "exclude" || len(sp.Subnets) != 1 {
+		t.Fatalf("a rejected command changed the setting: %+v", sp)
+	}
+}
+
+func TestSetSplitModeChangeRefusedWhileConnected(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.cmd("up")
+	err := r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"]}}`)
+	if err == nil || !strings.Contains(err.Error(), "disconnect first") {
+		t.Fatalf("err=%v", err)
+	}
+	if r.status(t).Settings.Split.Mode != "all" {
+		t.Fatal("the mode changed")
+	}
+}
+
+func TestSetSplitSameModeWhileConnectedIsAllowed(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"exclude","subnets":["203.0.113.0/24"]}}`)
+	r.cmd("up")
+	if err := r.set(t, `{"split":{"mode":"exclude","subnets":["198.51.100.0/24"]}}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSetSplitListChangeAppliesLive(t *testing.T) {
+	r, rs := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
+	r.cmd("up")
+	r.log.l = nil
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["198.51.100.0/24","192.0.2.0/24"],"domains":["example.net"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.log.String(), "net.subnets:2") || !strings.Contains(r.log.String(), "net.dnsdomains:1") {
+		t.Fatalf("calls %s", r.log)
+	}
+	waitFor(t, func() bool { return rs.called("example.net") })
+	waitFor(t, func() bool { return len(r.n.names()) == 1 }) // the new name's address replaced the old ones
+	if got := r.n.names(); len(got) != 1 || got[0] != netip.MustParseAddr("192.0.2.20") {
+		t.Fatalf("names %v", got)
+	}
+	if r.status(t).Settings.Split.Domains[0] != "example.net" {
+		t.Fatal("not stored")
+	}
+}
+
+func TestSetSplitApplyFailureKeepsOldSetting(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"exclude","subnets":["203.0.113.0/24"]}}`)
+	r.cmd("up")
+	r.n.subnetsErr = errors.New("nft refused")
+	if err := r.set(t, `{"split":{"mode":"exclude","subnets":["198.51.100.0/24"]}}`); err == nil {
+		t.Fatal("expected the error")
+	}
+	if sp := r.status(t).Settings.Split; sp.Subnets[0] != "203.0.113.0/24" {
+		t.Fatalf("stored although it could not be applied: %+v", sp)
+	}
+}
+
+func TestUpPassesSplitToNet(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"killSwitch":true,"split":{"mode":"only","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	if r.n.params.Split.Mode != "only" || len(r.n.params.Split.Subnets) != 1 {
+		t.Fatalf("params %+v", r.n.params.Split)
+	}
+	if r.n.dnsOpts.DefaultRoute || len(r.n.dnsOpts.Domains) != 1 || r.n.dnsOpts.Domains[0] != "example.com" {
+		t.Fatalf("dns options %+v: only the listed names go to the tunnel's DNS", r.n.dnsOpts)
+	}
+	if r.n.ksParams.Mode != "only" {
+		t.Fatalf("kill switch params %+v", r.n.ksParams)
+	}
+}
+
+func TestUpExcludeKeepsDefaultRouteDNS(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"exclude","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
+	r.cmd("up")
+	if !r.n.dnsOpts.DefaultRoute {
+		t.Fatalf("dns options %+v", r.n.dnsOpts)
+	}
+}
+
+func TestUpModeAllDoesNotStartWatcherOrPassSplit(t *testing.T) {
+	r, rs := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"all","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
+	r.cmd("up")
+	time.Sleep(60 * time.Millisecond)
+	if rs.called("example.com") || r.d.watcher != nil {
+		t.Fatal("a watcher ran in mode all")
+	}
+	if r.n.params.Split.Mode != "all" || !r.n.dnsOpts.DefaultRoute {
+		t.Fatalf("params %+v dns %+v", r.n.params.Split, r.n.dnsOpts)
+	}
+}
+
+func TestUpStartsWatcherWhenModeIsActive(t *testing.T) {
+	r, rs := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"exclude","domains":["example.com"]}}`)
+	r.cmd("up")
+	waitFor(t, func() bool { return rs.called("example.com") })
+	waitFor(t, func() bool { return len(r.n.names()) == 2 })
+}
+
+func TestDownStopsWatcherAndClearsSplitStatus(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"exclude","domains":["example.com"]}}`)
+	r.cmd("up")
+	if r.status(t).SplitStatus.Mode != "exclude" {
+		t.Fatalf("status %+v", r.status(t).SplitStatus)
+	}
+	r.cmd("down")
+	if r.d.watcher != nil || r.status(t).SplitStatus.Mode != "" {
+		t.Fatalf("watcher %v status %+v", r.d.watcher, r.status(t).SplitStatus)
+	}
+}
+
+func TestSplitStatusReportsResolvedCountAndError(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"only","domains":["example.com","missing.example.org"]}}`)
+	r.cmd("up")
+	waitFor(t, func() bool { return r.status(t).SplitStatus.Resolved == 2 })
+	st := r.status(t).SplitStatus
+	if st.Mode != "only" || st.ResolvedAt == "" || !strings.Contains(st.ResolveError, "missing.example.org") {
+		t.Fatalf("%+v", st)
+	}
+}
+
+func TestSplitSetRefusedWhenAuthorizerDenies(t *testing.T) {
+	r := newRig(t)
+	r.d.Auth = &denyAll{}
+	_, err := r.d.Handle(context.Background(), ipc.Peer{PID: 1}, ipc.Request{Cmd: "set", Args: json.RawMessage(`{"split":{"mode":"only"}}`)})
+	if err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("err=%v", err)
+	}
+	r.d.Auth = nil
+	if r.status(t).Settings.Split.Mode != "all" {
+		t.Fatal("a refused command changed the setting")
+	}
+}
+
+func TestKillSwitchAndSplitInOneSet(t *testing.T) {
+	r := newRig(t)
+	if err := r.set(t, `{"killSwitch":true,"allowLan":false,"split":{"mode":"exclude","subnets":["203.0.113.0/24"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	s := r.status(t).Settings
+	if !s.KillSwitch || s.AllowLAN || s.Split.Mode != "exclude" {
+		t.Fatalf("%+v", s)
 	}
 }

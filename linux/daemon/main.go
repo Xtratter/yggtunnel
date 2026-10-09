@@ -47,7 +47,7 @@ func main() {
 			srv.Broadcast(e)
 		}
 	}
-	var net daemon.Net = daemon.RealNet{}
+	var net daemon.Net = &daemon.RealNet{}
 	if *dry {
 		net = daemon.DryNet{}
 	}

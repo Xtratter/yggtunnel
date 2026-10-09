@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Xtratter/yggtunnel/linux/internal/dns"
 	"github.com/Xtratter/yggtunnel/linux/internal/netconf"
 	"github.com/Xtratter/yggtunnel/linux/internal/nstest"
 	"github.com/Xtratter/yggtunnel/linux/internal/store"
@@ -15,7 +16,7 @@ import (
 // nsNet is RealNet without DNS (systemd-resolved is not reachable from a throw-away namespace).
 type nsNet struct{}
 
-func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr) (*os.File, error) {
+func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr, _ dns.Options) (*os.File, error) {
 	f, err := netconf.CreateTun(p.IfName)
 	if err != nil {
 		return nil, err
@@ -30,6 +31,12 @@ func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr) (*os.File, err
 func (nsNet) Recover(prev store.PrevState) error { return netconf.RecoverFrom(prev) }
 
 func (nsNet) Clear() error { return netconf.Clear() }
+
+func (nsNet) SplitNames(addrs []netip.Addr) error { return netconf.UpdateNames(addrs) }
+
+func (nsNet) SplitSubnets(p netconf.SplitParams) error { return netconf.UpdateSubnets(p) }
+
+func (nsNet) UpdateDNSDomains([]string) error { return nil }
 
 func (nsNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
 	if !on {
@@ -168,5 +175,41 @@ func TestIntegrationKillSwitchCrashRecovery(t *testing.T) {
 	}
 	if netconf.KillSwitchActive() {
 		t.Fatal("the kill switch survived the crash: the user would be locked out")
+	}
+}
+
+func TestIntegrationSplitOnlyThroughDaemon(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	before := nstest.Snapshot(t)
+	r := nsRig(t)
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	rules := ipOut(t, "-4", "rule", "show")
+	if !strings.Contains(rules, "fwmark 0x5968 lookup 51871") || strings.Contains(rules, "suppress_prefixlength") {
+		t.Fatalf("rules for mode only:\n%s", rules)
+	}
+	out, _ := exec.Command("nft", "list", "table", "inet", "yggtunnel").CombinedOutput()
+	if !strings.Contains(string(out), "203.0.113.0/24") && !strings.Contains(string(out), "203.0.113.0") {
+		t.Fatalf("the listed subnet is not in the firewall:\n%s", out)
+	}
+	// a live list change while connected
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["198.51.100.0/24"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = exec.Command("nft", "list", "table", "inet", "yggtunnel").CombinedOutput()
+	if strings.Contains(string(out), "203.0.113.0") || !strings.Contains(string(out), "198.51.100.0") {
+		t.Fatalf("the live change did not replace the rules:\n%s", out)
+	}
+	if _, err := r.cmd("down"); err != nil {
+		t.Fatal(err)
+	}
+	if after := nstest.Snapshot(t); after != before {
+		t.Fatalf("down left changes\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }

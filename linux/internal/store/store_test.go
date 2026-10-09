@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
+	"github.com/Xtratter/yggtunnel/linux/internal/splitcfg"
 )
 
 func sample() profile.Profile {
@@ -173,5 +174,33 @@ func TestSettingsPersistAndSurviveDamagedFile(t *testing.T) {
 	os.WriteFile(filepath.Join(st.Dir, "settings.json"), []byte("{broken"), 0o600)
 	if got := st.Settings(); got.KillSwitch || !got.AllowLAN {
 		t.Fatalf("a damaged file must give the defaults, got %+v", got)
+	}
+}
+
+func TestSettingsSplitDefaultsToModeAll(t *testing.T) {
+	s := open(t).Settings()
+	if s.Split.Mode != "all" || len(s.Split.Subnets) != 0 || len(s.Split.Domains) != 0 {
+		t.Fatalf("%+v", s.Split)
+	}
+}
+
+func TestSettingsSplitRoundTrip(t *testing.T) {
+	st := open(t)
+	in := Settings{AllowLAN: true, Split: splitcfg.Config{Mode: "only", Subnets: []string{"203.0.113.0/24"}, Domains: []string{"example.com"}}}
+	if err := st.SaveSettings(in); err != nil {
+		t.Fatal(err)
+	}
+	got := st.Settings()
+	if got.Split.Mode != "only" || got.Split.Subnets[0] != "203.0.113.0/24" || got.Split.Domains[0] != "example.com" {
+		t.Fatalf("%+v", got.Split)
+	}
+}
+
+func TestOldSettingsFileWithoutSplitLoadsAsModeAll(t *testing.T) {
+	st := open(t)
+	os.WriteFile(filepath.Join(st.Dir, "settings.json"), []byte(`{"killSwitch":true,"allowLan":false}`), 0o600)
+	got := st.Settings()
+	if !got.KillSwitch || got.AllowLAN || got.Split.Mode != "all" {
+		t.Fatalf("%+v", got)
 	}
 }
