@@ -136,3 +136,21 @@ func TestTamperedCiphertextIsError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestNodeConfigGeneratedOnceAndEncrypted(t *testing.T) {
+	s := open(t)
+	n := 0
+	gen := func() (string, error) { n++; return `{"PrivateKey":"NODESECRET"}`, nil }
+	a, err := s.NodeConfig(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.NodeConfig(gen)
+	if err != nil || a != b || n != 1 {
+		t.Fatalf("a=%q b=%q gen calls=%d err=%v", a, b, n, err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(s.Dir, "node.json"))
+	if strings.Contains(string(raw), "NODESECRET") {
+		t.Fatal("node config stored in clear")
+	}
+}

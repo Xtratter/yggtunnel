@@ -116,3 +116,22 @@ func (s *Store) ClearPrev() error {
 	}
 	return nil
 }
+
+// NodeConfig returns the Yggdrasil node config (it holds the node's private key, so it is stored
+// encrypted), generating and saving it with gen on first use.
+func (s *Store) NodeConfig(gen func() (string, error)) (string, error) {
+	if b, err := os.ReadFile(s.path("node.json")); err == nil {
+		return s.open(string(b))
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	cfg, err := gen()
+	if err != nil {
+		return "", err
+	}
+	sealed, err := s.seal(cfg)
+	if err != nil {
+		return "", err
+	}
+	return cfg, writeAtomic(s.path("node.json"), []byte(sealed))
+}
