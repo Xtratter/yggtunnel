@@ -10,10 +10,10 @@ kill switch and split routing are the next steps.
 yggtunnel-gui ──┐
                 ├─ unix socket (JSON) ─▶ yggtunneld (root, systemd)
 yggtunnelctl ───┘
-                                       ├─ core     Yggdrasil + WireGuard (shared with Android, go/core)
-                                       ├─ netconf  TUN, addresses, routes, ip rules, traffic mark
-                                       ├─ dns      systemd-resolved, on the tunnel link only
-                                       └─ store    profile (private key encrypted), undo record
+                                         ├─ core     Yggdrasil + WireGuard (shared with Android, go/core)
+                                         ├─ netconf  TUN, addresses, routes, ip rules, traffic mark
+                                         ├─ dns      systemd-resolved, on the tunnel link only
+                                         └─ store    profile (private key encrypted), undo record
 ```
 
 ## Build

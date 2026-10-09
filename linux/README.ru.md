@@ -10,10 +10,10 @@ kill switch и раздельная маршрутизация — следую�
 yggtunnel-gui ──┐
                 ├─ unix-сокет (JSON) ─▶ yggtunneld (root, systemd)
 yggtunnelctl ───┘
-                                      ├─ core     Yggdrasil + WireGuard (общее с Android, go/core)
-                                      ├─ netconf  TUN, адреса, маршруты, ip rule, метка трафика
-                                      ├─ dns      systemd-resolved, только на интерфейсе туннеля
-                                      └─ store    профиль (приватный ключ зашифрован), запись для отката
+                                        ├─ core     Yggdrasil + WireGuard (общее с Android, go/core)
+                                        ├─ netconf  TUN, адреса, маршруты, ip rule, метка трафика
+                                        ├─ dns      systemd-resolved, только на интерфейсе туннеля
+                                        └─ store    профиль (приватный ключ зашифрован), запись для отката
 ```
 
 ## Сборка
