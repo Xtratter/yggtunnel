@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"strings"
 
@@ -22,6 +23,10 @@ const usage = `usage: yggtunnelctl [--socket PATH] <command>
   log                    show the node log
   killswitch on|off      drop traffic that bypasses the tunnel while connected
   lan on|off             with the kill switch: keep (on) or drop (off) local-network traffic
+  split mode all|exclude|only   which destinations use the tunnel (change it while disconnected)
+  split add <subnet|domain>     add to the list (a bare address is a /32 or /128 subnet)
+  split remove <subnet|domain>  remove from the list
+  split show                    show the mode and the lists
   panic                  remove every route, rule and DNS setting the daemon added
   version                show the daemon version`
 
@@ -41,7 +46,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	cmd, rest := fs.Arg(0), fs.Args()[1:]
 	switch cmd {
-	case "import", "up", "down", "status", "log", "panic", "version", "killswitch", "lan":
+	case "import", "up", "down", "status", "log", "panic", "version", "killswitch", "lan", "split":
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s\n", cmd, usage)
 		return 2
@@ -58,6 +63,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		callArgs = map[string]bool{field: rest[0] == "on"}
 		cmd = "set"
+	}
+	if cmd == "split" && !validSplitArgs(rest) {
+		fmt.Fprintln(stderr, usage)
+		return 2
 	}
 	if cmd == "import" {
 		if len(rest) != 1 {
@@ -77,6 +86,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer c.Close()
+	if cmd == "split" {
+		return runSplit(c, rest, stdout, stderr)
+	}
 	var raw json.RawMessage
 	if err := c.Call(cmd, callArgs, &raw); err != nil {
 		fmt.Fprintln(stderr, "error:", err)
@@ -125,8 +137,18 @@ func printStatus(w io.Writer, raw json.RawMessage) {
 		Settings struct {
 			KillSwitch bool `json:"killSwitch"`
 			AllowLAN   bool `json:"allowLan"`
+			Split      struct {
+				Mode    string   `json:"mode"`
+				Subnets []string `json:"subnets"`
+				Domains []string `json:"domains"`
+			} `json:"split"`
 		} `json:"settings"`
 		KillSwitchActive bool `json:"killSwitchActive"`
+		SplitStatus      struct {
+			Mode         string `json:"mode"`
+			Resolved     int    `json:"resolved"`
+			ResolveError string `json:"resolveError"`
+		} `json:"splitStatus"`
 	}
 	_ = json.Unmarshal(raw, &s)
 	fmt.Fprintf(w, "State:   %s\n", s.State)
@@ -150,7 +172,141 @@ func printStatus(w io.Writer, raw json.RawMessage) {
 			fmt.Fprintln(w, "Local network: dropped")
 		}
 	}
+	sp := s.Settings.Split
+	lists := fmt.Sprintf("(%d subnets, %d domains)", len(sp.Subnets), len(sp.Domains))
+	switch sp.Mode {
+	case "exclude":
+		fmt.Fprintf(w, "Routing: all traffic except the list %s\n", lists)
+	case "only":
+		fmt.Fprintf(w, "Routing: only the list through the tunnel %s\n", lists)
+	default:
+		fmt.Fprintln(w, "Routing: all traffic through the tunnel")
+	}
+	if s.SplitStatus.Mode != "" && s.SplitStatus.Mode != "all" && len(sp.Domains) > 0 {
+		fmt.Fprintf(w, "Names: %d addresses resolved\n", s.SplitStatus.Resolved)
+	}
+	if s.SplitStatus.ResolveError != "" {
+		fmt.Fprintf(w, "Name resolution problem: %s\n", s.SplitStatus.ResolveError)
+	}
 	if s.Error != "" {
 		fmt.Fprintf(w, "Last error: %s\n", s.Error)
 	}
+}
+
+// validSplitArgs checks the arguments of `split` before anything is sent.
+func validSplitArgs(rest []string) bool {
+	if len(rest) == 0 {
+		return false
+	}
+	switch rest[0] {
+	case "mode":
+		return len(rest) == 2 && (rest[1] == "all" || rest[1] == "exclude" || rest[1] == "only")
+	case "add", "remove":
+		return len(rest) == 2 && strings.TrimSpace(rest[1]) != ""
+	case "show":
+		return len(rest) == 1
+	}
+	return false
+}
+
+type splitLists struct {
+	Mode    string   `json:"mode"`
+	Subnets []string `json:"subnets"`
+	Domains []string `json:"domains"`
+}
+
+// isSubnet tells a subnet or address from a domain name; the daemon validates the entry either way.
+func isSubnet(entry string) bool {
+	if strings.Contains(entry, "/") {
+		return true
+	}
+	_, err := netip.ParseAddr(entry)
+	return err == nil
+}
+
+// canon is the form in which the daemon stores an entry, so that "192.0.2.7" finds "192.0.2.7/32".
+func canon(entry string, subnet bool) string {
+	entry = strings.TrimSpace(entry)
+	if !subnet {
+		return strings.ToLower(strings.TrimSuffix(entry, "."))
+	}
+	if p, err := netip.ParsePrefix(entry); err == nil {
+		return p.Masked().String()
+	}
+	if a, err := netip.ParseAddr(entry); err == nil {
+		return netip.PrefixFrom(a, a.BitLen()).String()
+	}
+	return entry
+}
+
+func indexOf(list []string, entry string, subnet bool) int {
+	want := canon(entry, subnet)
+	for i, e := range list {
+		if canon(e, subnet) == want {
+			return i
+		}
+	}
+	return -1
+}
+
+// runSplit implements `split mode|add|remove|show`: read the lists from the daemon, change them, send
+// the whole object back in one `set`.
+func runSplit(c *ipc.Client, rest []string, stdout, stderr io.Writer) int {
+	var st struct {
+		Settings struct {
+			Split splitLists `json:"split"`
+		} `json:"settings"`
+	}
+	if err := c.Call("status", nil, &st); err != nil {
+		fmt.Fprintln(stderr, "error:", err)
+		return 1
+	}
+	cur := st.Settings.Split
+	if cur.Mode == "" {
+		cur.Mode = "all"
+	}
+	send := func(next splitLists) int {
+		if err := c.Call("set", map[string]any{"split": next}, nil); err != nil {
+			fmt.Fprintln(stderr, "error:", err)
+			return 1
+		}
+		return 0
+	}
+	switch rest[0] {
+	case "show":
+		fmt.Fprintf(stdout, "Mode: %s\n", cur.Mode)
+		fmt.Fprintf(stdout, "Subnets (%d):\n", len(cur.Subnets))
+		for _, s := range cur.Subnets {
+			fmt.Fprintf(stdout, "  %s\n", s)
+		}
+		fmt.Fprintf(stdout, "Domains (%d):\n", len(cur.Domains))
+		for _, d := range cur.Domains {
+			fmt.Fprintf(stdout, "  %s\n", d)
+		}
+		return 0
+	case "mode":
+		cur.Mode = rest[1]
+		return send(cur)
+	}
+	entry := strings.TrimSpace(rest[1])
+	subnet := isSubnet(entry)
+	list := &cur.Domains
+	if subnet {
+		list = &cur.Subnets
+	}
+	i := indexOf(*list, entry, subnet)
+	if rest[0] == "add" {
+		if i >= 0 {
+			fmt.Fprintf(stdout, "%s is already in the list\n", entry)
+			return 0
+		}
+		*list = append(*list, entry)
+	} else {
+		if i < 0 {
+			fmt.Fprintf(stdout, "%s is not in the list\n", entry)
+			return 0
+		}
+		*list = append((*list)[:i], (*list)[i+1:]...)
+	}
+	return send(cur)
 }

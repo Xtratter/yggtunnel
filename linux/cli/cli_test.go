@@ -15,8 +15,9 @@ import (
 )
 
 type stub struct {
-	got   []ipc.Request
-	extra map[string]any // merged into the status answer
+	got    []ipc.Request
+	extra  map[string]any // merged into the status answer
+	setErr string         // when set, `set` fails with this text
 }
 
 func (s *stub) Handle(_ context.Context, _ ipc.Peer, req ipc.Request) (any, error) {
@@ -28,6 +29,11 @@ func (s *stub) Handle(_ context.Context, _ ipc.Peer, req ipc.Request) (any, erro
 			m[k] = v
 		}
 		return m, nil
+	case "set":
+		if s.setErr != "" {
+			return nil, errors.New(s.setErr)
+		}
+		return nil, nil
 	case "fail":
 		return nil, errors.New("boom")
 	case "up":
@@ -218,5 +224,210 @@ func TestCLIStatusShowsKillSwitchStates(t *testing.T) {
 				t.Errorf("%s: output has %q:\n%s", c.name, a, out)
 			}
 		}
+	}
+}
+
+// ---- split routing -----------------------------------------------------------------------------
+
+func splitStatus(mode string, subnets, domains []string) map[string]any {
+	return map[string]any{"settings": map[string]any{"killSwitch": false, "allowLan": true,
+		"split": map[string]any{"mode": mode, "subnets": subnets, "domains": domains}}}
+}
+
+func lastSet(t *testing.T, s *stub) (mode string, subnets, domains []string) {
+	t.Helper()
+	for i := len(s.got) - 1; i >= 0; i-- {
+		if s.got[i].Cmd == "set" {
+			var a struct {
+				Split struct {
+					Mode    string   `json:"mode"`
+					Subnets []string `json:"subnets"`
+					Domains []string `json:"domains"`
+				} `json:"split"`
+			}
+			if err := json.Unmarshal(s.got[i].Args, &a); err != nil {
+				t.Fatal(err)
+			}
+			return a.Split.Mode, a.Split.Subnets, a.Split.Domains
+		}
+	}
+	t.Fatalf("no set was sent: %v", s.got)
+	return
+}
+
+func sets(s *stub) int {
+	n := 0
+	for _, r := range s.got {
+		if r.Cmd == "set" {
+			n++
+		}
+	}
+	return n
+}
+
+func TestCLISplitModeSendsSetWithTheWholeObject(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("exclude", []string{"203.0.113.0/24"}, []string{"example.com"})
+	if code, _, errs := do(t, sock, "", "split", "mode", "only"); code != 0 {
+		t.Fatalf("code=%d err=%s", code, errs)
+	}
+	m, sub, dom := lastSet(t, s)
+	if m != "only" || len(sub) != 1 || sub[0] != "203.0.113.0/24" || len(dom) != 1 || dom[0] != "example.com" {
+		t.Fatalf("%s %v %v", m, sub, dom)
+	}
+}
+
+func TestCLISplitAddSubnetKeepsExisting(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("exclude", []string{"203.0.113.0/24"}, nil)
+	do(t, sock, "", "split", "add", "198.51.100.0/24")
+	m, sub, _ := lastSet(t, s)
+	if m != "exclude" || len(sub) != 2 || sub[1] != "198.51.100.0/24" {
+		t.Fatalf("%s %v", m, sub)
+	}
+}
+
+func TestCLISplitAddBareAddressIsASubnet(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", nil, nil)
+	do(t, sock, "", "split", "add", "192.0.2.7")
+	_, sub, dom := lastSet(t, s)
+	if len(sub) != 1 || sub[0] != "192.0.2.7" || len(dom) != 0 {
+		t.Fatalf("%v %v", sub, dom)
+	}
+}
+
+func TestCLISplitAddDomain(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", []string{"203.0.113.0/24"}, []string{"example.com"})
+	do(t, sock, "", "split", "add", "Example.NET")
+	_, sub, dom := lastSet(t, s)
+	if len(sub) != 1 || len(dom) != 2 || dom[1] != "Example.NET" {
+		t.Fatalf("%v %v (the daemon normalises the case)", sub, dom)
+	}
+}
+
+func TestCLISplitAddExistingIsNoop(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", []string{"203.0.113.0/24"}, []string{"example.com"})
+	_, out, _ := do(t, sock, "", "split", "add", "EXAMPLE.com")
+	do(t, sock, "", "split", "add", "203.0.113.0/24")
+	if sets(s) != 0 || !strings.Contains(out, "already") {
+		t.Fatalf("sets=%d out=%q", sets(s), out)
+	}
+}
+
+func TestCLISplitRemove(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", []string{"203.0.113.0/24", "198.51.100.0/24"}, []string{"example.com", "example.net"})
+	do(t, sock, "", "split", "remove", "198.51.100.0/24")
+	do(t, sock, "", "split", "remove", "Example.com")
+	// the stub's status never changes, so each command starts from the full lists: look at both sets
+	var firstSub, lastDom []string
+	n := 0
+	for _, r := range s.got {
+		if r.Cmd != "set" {
+			continue
+		}
+		var a struct {
+			Split struct{ Subnets, Domains []string }
+		}
+		json.Unmarshal(r.Args, &a)
+		if n == 0 {
+			firstSub = a.Split.Subnets
+		}
+		lastDom = a.Split.Domains
+		n++
+	}
+	if len(firstSub) != 1 || firstSub[0] != "203.0.113.0/24" {
+		t.Fatalf("after removing 198.51.100.0/24: %v", firstSub)
+	}
+	if len(lastDom) != 1 || lastDom[0] != "example.net" {
+		t.Fatalf("after removing Example.com: %v", lastDom)
+	}
+	if sets(s) != 2 {
+		t.Fatalf("sets=%d", sets(s))
+	}
+}
+
+func TestCLISplitRemoveBareAddressMatchesItsHostRoute(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", []string{"192.0.2.7/32"}, nil)
+	do(t, sock, "", "split", "remove", "192.0.2.7")
+	if _, sub, _ := lastSet(t, s); len(sub) != 0 {
+		t.Fatalf("%v", sub)
+	}
+}
+
+func TestCLISplitRemoveMissingIsNoop(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("only", []string{"203.0.113.0/24"}, nil)
+	code, out, _ := do(t, sock, "", "split", "remove", "example.org")
+	if code != 0 || sets(s) != 0 || !strings.Contains(out, "not in the list") {
+		t.Fatalf("code=%d sets=%d out=%q", code, sets(s), out)
+	}
+}
+
+func TestCLISplitBadArguments(t *testing.T) {
+	sock, s := serve(t)
+	for _, args := range [][]string{{"split"}, {"split", "mode"}, {"split", "mode", "maybe"}, {"split", "add"}, {"split", "add", "a", "b"},
+		{"split", "remove"}, {"split", "show", "x"}, {"split", "frobnicate"}} {
+		code, _, errs := do(t, sock, "", args...)
+		if code != 2 || !strings.Contains(errs, "usage") {
+			t.Errorf("%v: code=%d err=%q", args, code, errs)
+		}
+	}
+	if len(s.got) != 0 {
+		t.Fatalf("a bad command reached the daemon: %v", s.got)
+	}
+}
+
+func TestCLISplitShowListsEntries(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("exclude", []string{"203.0.113.0/24"}, []string{"example.com", "example.net"})
+	_, out, _ := do(t, sock, "", "split", "show")
+	for _, want := range []string{"exclude", "203.0.113.0/24", "example.com", "example.net"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCLIStatusShowsRouting(t *testing.T) {
+	cases := []struct {
+		mode  string
+		extra func() map[string]any
+		want  []string
+	}{
+		{"all", func() map[string]any { return splitStatus("all", nil, nil) }, []string{"Routing: all traffic through the tunnel"}},
+		{"exclude", func() map[string]any {
+			return splitStatus("exclude", []string{"203.0.113.0/24"}, []string{"example.com"})
+		},
+			[]string{"Routing: all traffic except the list (1 subnets, 1 domains)"}},
+		{"only", func() map[string]any {
+			m := splitStatus("only", nil, []string{"example.com"})
+			m["splitStatus"] = map[string]any{"mode": "only", "resolved": 3, "resolveError": "example.org: servfail"}
+			return m
+		}, []string{"Routing: only the list through the tunnel (0 subnets, 1 domains)", "3 addresses resolved", "servfail"}},
+	}
+	for _, c := range cases {
+		sock, s := serve(t)
+		s.extra = c.extra()
+		_, out, _ := do(t, sock, "", "status")
+		for _, w := range c.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: output lacks %q:\n%s", c.mode, w, out)
+			}
+		}
+	}
+}
+
+func TestCLIDaemonErrorForModeChangeIsPrinted(t *testing.T) {
+	sock, s := serve(t)
+	s.extra = splitStatus("all", nil, nil)
+	s.setErr = "disconnect first to change the routing mode"
+	code, _, errs := do(t, sock, "", "split", "mode", "only")
+	if code != 1 || !strings.Contains(errs, "disconnect first") {
+		t.Fatalf("code=%d err=%q", code, errs)
 	}
 }
