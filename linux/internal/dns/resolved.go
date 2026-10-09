@@ -38,8 +38,19 @@ const (
 	afInet6 = 10
 )
 
+// Options says which names go to the tunnel's DNS servers.
+type Options struct {
+	DefaultRoute bool     // every name ("~.") — the full tunnel
+	Domains      []string // only these names (routing domains); ignored when DefaultRoute is set
+}
+
 // Set makes servers the DNS of the link and routes every name to it (routing domain "~.").
 func Set(c Conn, ifIndex int, servers []netip.Addr) error {
+	return SetWith(c, ifIndex, servers, Options{DefaultRoute: true})
+}
+
+// SetWith makes servers the DNS of the link and routes the names chosen by o to it.
+func SetWith(c Conn, ifIndex int, servers []netip.Addr, o Options) error {
 	if len(servers) == 0 {
 		return errors.New("no DNS servers given")
 	}
@@ -57,10 +68,18 @@ func Set(c Conn, ifIndex int, servers []netip.Addr) error {
 	if err := c.Call(mgr+"SetLinkDNS", idx, addrs); err != nil {
 		return fmt.Errorf("SetLinkDNS: %w", err)
 	}
-	if err := c.Call(mgr+"SetLinkDomains", idx, []Domain{{Name: ".", RoutingOnly: true}}); err != nil {
+	doms := []Domain{}
+	if o.DefaultRoute {
+		doms = append(doms, Domain{Name: ".", RoutingOnly: true})
+	} else {
+		for _, d := range o.Domains {
+			doms = append(doms, Domain{Name: d, RoutingOnly: true})
+		}
+	}
+	if err := c.Call(mgr+"SetLinkDomains", idx, doms); err != nil {
 		return fmt.Errorf("SetLinkDomains: %w", err)
 	}
-	if err := c.Call(mgr+"SetLinkDefaultRoute", idx, true); err != nil {
+	if err := c.Call(mgr+"SetLinkDefaultRoute", idx, o.DefaultRoute); err != nil {
 		return fmt.Errorf("SetLinkDefaultRoute: %w", err)
 	}
 	return nil

@@ -98,3 +98,48 @@ func TestSystemConnErrorMentionsResolved(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestSetWithDomainsAndNoDefaultRoute(t *testing.T) {
+	f := &fake{}
+	if err := SetWith(f, 7, servers, Options{DefaultRoute: false, Domains: []string{"example.com", "example.net"}}); err != nil {
+		t.Fatal(err)
+	}
+	doms := f.calls[1].args[1].([]Domain)
+	if len(doms) != 2 || doms[0] != (Domain{Name: "example.com", RoutingOnly: true}) || doms[1] != (Domain{Name: "example.net", RoutingOnly: true}) {
+		t.Fatalf("domains %+v", doms)
+	}
+	if f.calls[2].args[1] != false {
+		t.Fatalf("default route arg %v, want false", f.calls[2].args[1])
+	}
+}
+
+func TestSetWithDefaultRouteKeepsTildeDot(t *testing.T) {
+	f := &fake{}
+	if err := SetWith(f, 7, servers, Options{DefaultRoute: true}); err != nil {
+		t.Fatal(err)
+	}
+	doms := f.calls[1].args[1].([]Domain)
+	if len(doms) != 1 || doms[0] != (Domain{Name: ".", RoutingOnly: true}) || f.calls[2].args[1] != true {
+		t.Fatalf("domains %+v default %v", doms, f.calls[2].args[1])
+	}
+}
+
+func TestSetWithEmptyDomainsAndNoDefaultRoute(t *testing.T) {
+	f := &fake{}
+	if err := SetWith(f, 7, servers, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	doms := f.calls[1].args[1].([]Domain)
+	if len(doms) != 0 || f.calls[2].args[1] != false {
+		t.Fatalf("domains %+v default %v: nothing should be routed to the tunnel's DNS", doms, f.calls[2].args[1])
+	}
+}
+
+func TestSetMeansDefaultRoute(t *testing.T) {
+	a, b := &fake{}, &fake{}
+	Set(a, 3, servers)
+	SetWith(b, 3, servers, Options{DefaultRoute: true})
+	if len(a.calls) != len(b.calls) {
+		t.Fatalf("%d vs %d calls", len(a.calls), len(b.calls))
+	}
+}

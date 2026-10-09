@@ -432,3 +432,88 @@ func sendBroadcastBound(dst, dev string) {
 	}
 	c.Write([]byte("x"))
 }
+
+// ---- kill switch together with split routing ----------------------------------------------------
+
+func armWithMode(t *testing.T, tx *Tx, mode string) {
+	t.Helper()
+	if err := AddKillSwitch(tx, KSParams{IfName: "yggtun0", Mark: 0x5967, Mode: mode}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKillSwitchOnlyModeDropsMarkedTrafficWhenTunnelRouteVanishes(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	armWithMode(t, tx, "only")
+	leak(t)
+	sendUDP("203.0.113.9:9") // listed: marked for the tunnel, but the tunnel route is gone
+	if n := dropped(t); n != 1 {
+		t.Fatalf("drop counter %d, want 1", n)
+	}
+}
+
+func TestKillSwitchOnlyModeLeavesUnmarkedTrafficAlone(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	armWithMode(t, tx, "only")
+	sendUDP("198.51.100.9:9") // not listed: meant to go direct
+	if n := dropped(t); n != 0 {
+		t.Fatalf("direct traffic of mode only was dropped (%d)", n)
+	}
+	sendUDPBound("192.168.77.50:9", "lan")
+	if n := dropped(t); n != 0 {
+		t.Fatalf("local traffic was dropped (%d)", n)
+	}
+}
+
+func TestKillSwitchOnlyModeLetsTunnelTrafficOut(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	armWithMode(t, tx, "only")
+	sendUDP("203.0.113.9:9") // the tunnel route is intact
+	if n := dropped(t); n != 0 {
+		t.Fatalf("tunnelled traffic was dropped (%d)", n)
+	}
+}
+
+func TestKillSwitchExcludeListedDestinationIsNotDropped(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "exclude", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	armWithMode(t, tx, "exclude")
+	leak(t)
+	sendUDP("203.0.113.9:9") // listed: meant to go direct, marked to bypass the tunnel
+	if n := dropped(t); n != 0 {
+		t.Fatalf("an excluded destination was dropped (%d)", n)
+	}
+	sendUDP("198.51.100.9:9") // not listed and the tunnel route is gone: a leak
+	if n := dropped(t); n != 1 {
+		t.Fatalf("drop counter %d, want 1 for the leaking unlisted destination", n)
+	}
+}
+
+func TestKillSwitchOnlyModeRemovedByRollback(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", nil, otherCgroup(t))
+	armWithMode(t, tx, "only")
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if KillSwitchActive() {
+		t.Fatal("kill switch left behind")
+	}
+}

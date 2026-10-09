@@ -22,6 +22,10 @@ type KSParams struct {
 	IfName   string // the tunnel interface
 	Mark     uint32 // the daemon's own traffic carries this mark (see addMark)
 	AllowLAN bool   // private, link-local and multicast destinations
+	// Mode is the split mode ("", "all", "exclude": the rules below). In "only" the tunnel carries just
+	// the listed destinations, so the kill switch guards only those: traffic marked ForceMark must not
+	// leave through anything but the tunnel; everything else goes where it was meant to.
+	Mode string
 }
 
 var (
@@ -53,14 +57,27 @@ func applyKillSwitch(p KSParams) error {
 	c.AddTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: ksTable})
 	c.DelTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: ksTable})
 	t := c.AddTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: ksTable})
-	ch := c.AddChain(&nftables.Chain{Name: "output", Table: t, Type: nftables.ChainTypeFilter,
-		Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityFilter})
+	hook, chainName := nftables.ChainHookOutput, "output"
+	if p.Mode == "only" {
+		// In the output hook `oifname` is the interface chosen BEFORE the mark chain re-routed the packet, so
+		// it would still say the physical link for packets that were just sent into the tunnel. In
+		// postrouting it is the final one.
+		hook, chainName = nftables.ChainHookPostrouting, "post"
+	}
+	ch := c.AddChain(&nftables.Chain{Name: chainName, Table: t, Type: nftables.ChainTypeFilter,
+		Hooknum: hook, Priority: nftables.ChainPriorityFilter})
 	add := func(comment string, exprs ...expr.Any) {
 		r := &nftables.Rule{Table: t, Chain: ch, Exprs: exprs}
 		if comment != "" {
 			r.UserData = userdata.AppendString(nil, userdata.TypeComment, comment)
 		}
 		c.AddRule(r)
+	}
+	if p.Mode == "only" {
+		add(ksComment, &expr.Meta{Key: expr.MetaKeyMARK, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(ForceMark)},
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: ifnameData(p.IfName)},
+			&expr.Counter{}, &expr.Verdict{Kind: expr.VerdictDrop})
+		return ksFlush(c)
 	}
 	accept := &expr.Verdict{Kind: expr.VerdictAccept}
 	add("", &expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: ifnameData("lo")}, accept)
