@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Network Gui Quick QuickControls2 Test LinguistTools)
 qt_standard_project_setup()
 
-add_library(ygg_core STATIC src/protocol.cpp)
+add_library(ygg_core STATIC src/protocol.cpp src/daemonclient.cpp)
 target_include_directories(ygg_core PUBLIC src)
 target_link_libraries(ygg_core PUBLIC Qt6::Core Qt6::Network)
 
