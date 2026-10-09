@@ -60,6 +60,26 @@ func (t *Tx) Rollback() error {
 	return errors.Join(errs...)
 }
 
+// Undo undoes the last step of that kind now, forgets it and re-records. It does nothing (and returns
+// nil) when there is no such step, so it can be called twice.
+func (t *Tx) Undo(kind string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := len(t.steps) - 1; i >= 0; i-- {
+		if t.steps[i].Kind != kind || i >= len(t.undos) {
+			continue
+		}
+		err := t.undos[i]()
+		t.steps = append(t.steps[:i], t.steps[i+1:]...)
+		t.undos = append(t.undos[:i], t.undos[i+1:]...)
+		if rerr := t.rec(store.PrevState{Steps: t.steps}); rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+		return err
+	}
+	return nil
+}
+
 // RecoverFrom undoes steps recorded by a process that died, using only the record.
 func RecoverFrom(prev store.PrevState) error {
 	var errs []error
@@ -82,6 +102,8 @@ func undoStep(s store.Step) error {
 	case "rule":
 		return delRule(s.Args)
 	case "nft":
+		return delMarkTable(s.Args["table"])
+	case "killswitch":
 		return delMarkTable(s.Args["table"])
 	case "dry": // recorded by `--dry-run`; nothing was changed
 		return nil
