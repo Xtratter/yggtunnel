@@ -20,6 +20,8 @@ const usage = `usage: yggtunnelctl [--socket PATH] <command>
   down                   disconnect
   status [--json]        show the state
   log                    show the node log
+  killswitch on|off      drop traffic that bypasses the tunnel while connected
+  lan on|off             with the kill switch: keep (on) or drop (off) local-network traffic
   panic                  remove every route, rule and DNS setting the daemon added
   version                show the daemon version`
 
@@ -39,12 +41,24 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	cmd, rest := fs.Arg(0), fs.Args()[1:]
 	switch cmd {
-	case "import", "up", "down", "status", "log", "panic", "version":
+	case "import", "up", "down", "status", "log", "panic", "version", "killswitch", "lan":
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n%s\n", cmd, usage)
 		return 2
 	}
 	var callArgs any
+	if cmd == "killswitch" || cmd == "lan" {
+		if len(rest) != 1 || (rest[0] != "on" && rest[0] != "off") {
+			fmt.Fprintln(stderr, usage)
+			return 2
+		}
+		field := "killSwitch"
+		if cmd == "lan" {
+			field = "allowLan"
+		}
+		callArgs = map[string]bool{field: rest[0] == "on"}
+		cmd = "set"
+	}
 	if cmd == "import" {
 		if len(rest) != 1 {
 			fmt.Fprintln(stderr, usage)
@@ -108,6 +122,11 @@ func printStatus(w io.Writer, raw json.RawMessage) {
 			Name      string `json:"name"`
 			ServerYgg string `json:"serverYgg"`
 		} `json:"profile"`
+		Settings struct {
+			KillSwitch bool `json:"killSwitch"`
+			AllowLAN   bool `json:"allowLan"`
+		} `json:"settings"`
+		KillSwitchActive bool `json:"killSwitchActive"`
 	}
 	_ = json.Unmarshal(raw, &s)
 	fmt.Fprintf(w, "State:   %s\n", s.State)
@@ -115,6 +134,21 @@ func printStatus(w io.Writer, raw json.RawMessage) {
 		fmt.Fprintf(w, "Profile: %s (%s)\n", s.Profile.Name, s.Profile.ServerYgg)
 	} else {
 		fmt.Fprintln(w, "Profile: none (yggtunnelctl import <link>)")
+	}
+	switch {
+	case s.KillSwitchActive:
+		fmt.Fprintln(w, "Kill switch: active")
+	case s.Settings.KillSwitch:
+		fmt.Fprintln(w, "Kill switch: armed (starts with the next connection)")
+	default:
+		fmt.Fprintln(w, "Kill switch: off")
+	}
+	if s.Settings.KillSwitch {
+		if s.Settings.AllowLAN {
+			fmt.Fprintln(w, "Local network: allowed")
+		} else {
+			fmt.Fprintln(w, "Local network: blocked")
+		}
 	}
 	if s.Error != "" {
 		fmt.Fprintf(w, "Last error: %s\n", s.Error)
