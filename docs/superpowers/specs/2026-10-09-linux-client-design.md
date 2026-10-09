@@ -70,9 +70,13 @@ Android app, so the status island and the log behave identically.
 1. Save current network state to `/var/lib/yggtunnel/prev.json` (default route, DNS, our nftables rules).
 2. Core starts the Yggdrasil node and picks peers.
 3. Create `yggtun0`, bring up WireGuard inside Yggdrasil.
-4. Routes: default route via `yggtun0`; server and peer addresses stay on the previous gateway
-   (otherwise tunnel packets loop).
-5. DNS: server's DNS on `yggtun0` only, through `systemd-resolved` over D-Bus.
+4. Addresses and routes, as in the Android app: the node's Yggdrasil address `/7`, `clientIp4/32`,
+   `clientIp6/128` (when the server has IPv6), MTU 1280, default routes through `yggtun0` in a separate
+   routing table. Peers change at runtime, so they cannot be listed as exceptions; instead nftables
+   marks traffic of the daemon's own cgroup (`yggtunneld.service`) and an `ip rule` sends marked
+   traffic through the main table, so tunnel packets never loop (the `wg-quick` scheme).
+5. DNS: the same resolvers as the Android app (`1.1.1.1`, `8.8.8.8`) through the tunnel, set on
+   `yggtun0` only (with the `~.` routing domain) through `systemd-resolved` over D-Bus.
 6. Enable kill switch and split-routing marks.
 7. State `Connected`; event to clients.
 
