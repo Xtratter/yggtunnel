@@ -20,6 +20,12 @@ import (
 // sees where packets really leave (after source NAT).
 func splitEnv(t *testing.T, mode string, subnets []string, cgroup string) *Tx {
 	t.Helper()
+	return splitEnvOpt(t, mode, subnets, cgroup, true)
+}
+
+// splitEnvOpt is splitEnv with the choice whether the tunnel's DNS servers are forced into the tunnel.
+func splitEnvOpt(t *testing.T, mode string, subnets []string, cgroup string, forceDNS bool) *Tx {
+	t.Helper()
 	for _, c := range [][]string{
 		{"link", "add", "lan", "type", "dummy"},
 		{"addr", "add", "192.168.77.2/24", "dev", "lan"},
@@ -38,7 +44,7 @@ func splitEnv(t *testing.T, mode string, subnets []string, cgroup string) *Tx {
 	t.Cleanup(func() { f.Close() })
 	p := params(t)
 	p.CgroupPath = cgroup
-	p.Split = SplitParams{Mode: mode, Subnets: prefixes(t, subnets)}
+	p.Split = SplitParams{Mode: mode, Subnets: prefixes(t, subnets), ForceDNS: forceDNS}
 	tx := NewTx(func(store.PrevState) error { return nil })
 	if err := Configure(tx, p); err != nil {
 		t.Fatal(err)
@@ -49,6 +55,7 @@ func splitEnv(t *testing.T, mode string, subnets []string, cgroup string) *Tx {
 		oifname "yggtun0" counter comment "tunnel"
 		oifname "yggtun0" ip saddr 192.0.2.10 counter comment "tunnel-src4"
 		oifname "yggtun0" ip6 saddr 2001:db8::10 counter comment "tunnel-src6"
+		oifname "lan" ip saddr 192.0.2.10 counter comment "leak4"
 	}
 }`
 	cmd := exec.Command("nft", "-f", "-")
@@ -359,5 +366,175 @@ func TestUpdateSubnetsLive(t *testing.T) {
 	}
 	if got := route(t, "203.0.113.9:9"); got != "tunnel" {
 		t.Fatalf("removed entry: %s", got)
+	}
+}
+
+// ---- a flow keeps the path it started on ---------------------------------------------------------
+
+// flow is one connected UDP socket; send() writes a packet and says where it left.
+func flow(t *testing.T, dst string) func() string {
+	t.Helper()
+	c, err := net.Dial("udp", dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { c.Close() })
+	return func() string {
+		d0, t0 := counter(t, "direct"), counter(t, "tunnel")
+		c.Write([]byte("x"))
+		d1, t1 := counter(t, "direct"), counter(t, "tunnel")
+		switch {
+		case t1 > t0 && d1 == d0:
+			return "tunnel"
+		case d1 > d0 && t1 == t0:
+			return "direct"
+		}
+		return "none"
+	}
+}
+
+func TestOnlyFlowStaysInTunnelWhenNameIsRemoved(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", nil, otherCgroup(t))
+	defer tx.Rollback()
+	addr := netip.MustParseAddr("192.0.2.55")
+	if err := UpdateNames([]netip.Addr{addr}); err != nil {
+		t.Fatal(err)
+	}
+	send := flow(t, "192.0.2.55:9")
+	if got := send(); got != "tunnel" {
+		t.Fatalf("first packet: %s", got)
+	}
+	if err := UpdateNames(nil); err != nil { // the name moved away, or the list changed
+		t.Fatal(err)
+	}
+	if got := send(); got != "tunnel" {
+		t.Fatalf("second packet of the SAME flow: %s (it would leave the physical link with the tunnel's source address)", got)
+	}
+	if n := counter(t, "leak4"); n != 0 {
+		t.Fatalf("%d packets left the physical link with the tunnel source address", n)
+	}
+}
+
+func TestExcludeFlowStaysInTunnelWhenNameIsAdded(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "exclude", nil, otherCgroup(t))
+	defer tx.Rollback()
+	send := flow(t, "192.0.2.55:9")
+	if got := send(); got != "tunnel" {
+		t.Fatalf("first packet: %s", got)
+	}
+	if err := UpdateNames([]netip.Addr{netip.MustParseAddr("192.0.2.55")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := send(); got != "tunnel" {
+		t.Fatalf("second packet of the SAME flow: %s", got)
+	}
+	if n := counter(t, "leak4"); n != 0 {
+		t.Fatalf("%d packets left the physical link with the tunnel source address", n)
+	}
+	if got := route(t, "192.0.2.55:9"); got != "direct" { // a NEW flow follows the list
+		t.Fatalf("a new flow: %s", got)
+	}
+}
+
+func TestOnlyFlowStaysDirectWhenNameIsAdded(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "only", nil, otherCgroup(t))
+	defer tx.Rollback()
+	send := flow(t, "192.0.2.55:9")
+	if got := send(); got != "direct" {
+		t.Fatalf("first packet: %s", got)
+	}
+	if err := UpdateNames([]netip.Addr{netip.MustParseAddr("192.0.2.55")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := send(); got != "direct" {
+		t.Fatalf("second packet of the SAME flow: %s", got)
+	}
+}
+
+func TestExcludeFlowStaysDirectWhenNameIsRemoved(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "exclude", nil, otherCgroup(t))
+	defer tx.Rollback()
+	UpdateNames([]netip.Addr{netip.MustParseAddr("192.0.2.55")})
+	send := flow(t, "192.0.2.55:9")
+	if got := send(); got != "direct" {
+		t.Fatalf("first packet: %s", got)
+	}
+	UpdateNames(nil)
+	if got := send(); got != "direct" {
+		t.Fatalf("second packet of the SAME flow: %s", got)
+	}
+}
+
+func TestSourceGuardDropsTunnelAddressOnPhysicalLink(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "exclude", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	// a program that binds the tunnel's address but is forced out of the physical link
+	d := net.Dialer{LocalAddr: &net.UDPAddr{IP: net.ParseIP("192.0.2.10")}}
+	c, err := d.Dial("udp", "198.51.100.9:9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	bindToDevice(c, "lan")
+	c.Write([]byte("x"))
+	if n := counter(t, "leak4"); n != 0 {
+		t.Fatalf("%d packets left the physical link with the tunnel source address", n)
+	}
+	out, _ := exec.Command("nft", "list", "table", "inet", "yggtunnel").CombinedOutput()
+	if !regexp.MustCompile(`counter packets [1-9]\d* bytes \d+ drop comment "yggtunnel-src-guard"`).Match(out) {
+		t.Fatalf("the source guard did not count a drop:\n%s", out)
+	}
+}
+
+func TestExcludedTrafficIsNotCaughtByTheSourceGuard(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnv(t, "exclude", []string{"203.0.113.0/24"}, otherCgroup(t))
+	defer tx.Rollback()
+	if got := route(t, "203.0.113.9:9"); got != "direct" { // masqueraded to the physical address before the guard
+		t.Fatalf("an excluded destination: %s", got)
+	}
+}
+
+func TestOnlyWithoutDomainsDoesNotForceDNS(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnvOpt(t, "only", []string{"203.0.113.0/24"}, otherCgroup(t), false)
+	defer tx.Rollback()
+	for _, dst := range []string{"1.1.1.1:53", "8.8.8.8:53"} {
+		if got := route(t, dst); got != "direct" {
+			t.Fatalf("%s: %s — without listed names nothing needs the tunnel's DNS, so these addresses stay direct", dst, got)
+		}
+	}
+}
+
+func TestUpdateSubnetsCanSwitchDNSForcingOn(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := splitEnvOpt(t, "only", nil, otherCgroup(t), false)
+	defer tx.Rollback()
+	if err := UpdateSubnets(SplitParams{Mode: "only", ForceDNS: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := route(t, "1.1.1.1:53"); got != "tunnel" {
+		t.Fatalf("after listing a domain: %s", got)
 	}
 }

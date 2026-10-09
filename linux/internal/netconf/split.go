@@ -9,6 +9,7 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
+	"github.com/google/nftables/userdata"
 	"golang.org/x/sys/unix"
 )
 
@@ -17,9 +18,12 @@ const ForceMark = 0x5968
 
 const (
 	defaultBypassMark = 0x5967
-	splitChain        = "split"
-	namesTimeout      = 5 * time.Minute
-	setChunk          = 1000 // elements per netlink message
+	// decidedMark is saved in a connection that was looked at and is on neither list, so that it keeps
+	// the default path for good. It means nothing to `ip rule` (no rule matches it).
+	decidedMark  = 0x5969
+	splitChain   = "split"
+	namesTimeout = 5 * time.Minute
+	setChunk     = 1000 // elements per netlink message
 )
 
 // SplitParams says which destinations use the tunnel.
@@ -30,6 +34,9 @@ type SplitParams struct {
 	Mode    string
 	Subnets []netip.Prefix // already normalised
 	Mark    uint32         // the bypass mark; 0 means the default 0x5967 (Configure fills it in)
+	// ForceDNS (mode "only"): always send the tunnel's DNS servers into the tunnel. Needed only while names
+	// are listed; without it nothing is asked there, and those addresses are left alone.
+	ForceDNS bool
 }
 
 func (s SplitParams) active() bool { return s.Mode == "exclude" || s.Mode == "only" }
@@ -55,6 +62,46 @@ func setMark(mark uint32) []expr.Any {
 	}
 }
 
+// saveMark copies the packet mark into the connection's mark.
+func saveMark() []expr.Any {
+	return []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+		&expr.Ct{Key: expr.CtKeyMARK, SourceRegister: true, Register: 1},
+	}
+}
+
+// restoreMark copies a saved connection mark back into the packet mark.
+func restoreMark() []expr.Any {
+	return []expr.Any{
+		&expr.Ct{Key: expr.CtKeyMARK, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: make([]byte, 4)},
+		&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
+	}
+}
+
+// addSourceGuard drops, after source NAT, anything that leaves through another interface with the
+// tunnel's own address as its source: the address belongs to the tunnel, and a packet carrying it
+// on the physical link is a leak whatever the rules above decided.
+func addSourceGuard(c *nftables.Conn, t *nftables.Table, p Params) {
+	ch := c.AddChain(&nftables.Chain{Name: "guard", Table: t, Type: nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityRef(110)}) // srcnat is 100
+	add := func(family byte, offset, size uint32, addr netip.Addr) {
+		c.AddRule(&nftables.Rule{Table: t, Chain: ch, UserData: userdata.AppendString(nil, userdata.TypeComment, "yggtunnel-src-guard"), Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, Register: 1}, &expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: []byte{family}},
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1}, &expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: ifnameData(p.IfName)},
+			&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: size},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: addr.AsSlice()},
+			&expr.Counter{}, &expr.Verdict{Kind: expr.VerdictDrop},
+		}})
+	}
+	if p.ClientIP4.IsValid() {
+		add(unix.NFPROTO_IPV4, 12, 4, p.ClientIP4)
+	}
+	if p.ClientIP6.IsValid() {
+		add(unix.NFPROTO_IPV6, 8, 16, p.ClientIP6)
+	}
+}
+
 // addSplitChain creates the sets, the `split` chain and the jump to it from the `mark` chain.
 func addSplitChain(c *nftables.Conn, t *nftables.Table, mark *nftables.Chain, p SplitParams) {
 	s4 := &nftables.Set{Table: t, Name: "names4", KeyType: nftables.TypeIPAddr, HasTimeout: true, Timeout: namesTimeout}
@@ -77,17 +124,28 @@ func addSplitRules(c *nftables.Conn, t *nftables.Table, ch *nftables.Chain, p Sp
 		// the daemon's own traffic (already marked by the cgroup rule) must never be pulled into the tunnel
 		guard = []expr.Any{&expr.Meta{Key: expr.MetaKeyMARK, Register: 1}, &expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(bypass)}}
 	}
+	// A connection is classified once, by its first packet that has no saved decision (`ct mark` is 0),
+	// and the decision is saved in the connection; the `mark` chain restores it for every later packet.
+	// So a list change (a name that moved, an entry added or removed) never moves a running connection to
+	// the other path, where it would leave with the wrong source address. (`ct state new` cannot be used:
+	// for UDP it stays "new" until the first reply.)
+	undecided := []expr.Any{
+		&expr.Ct{Key: expr.CtKeyMARK, Register: 1},
+		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: make([]byte, 4)},
+	}
 	add := func(match []expr.Any) {
 		var e []expr.Any
+		e = append(e, undecided...)
 		e = append(e, guard...)
 		e = append(e, match...)
 		e = append(e, setMark(action)...)
+		e = append(e, saveMark()...)
 		c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: e})
 	}
 	for _, pfx := range p.Subnets {
 		add(destMatch(pfx))
 	}
-	if p.Mode == "only" {
+	if p.Mode == "only" && p.ForceDNS {
 		for _, a := range forcedDNS {
 			add(destMatch(netip.PrefixFrom(a, a.BitLen())))
 		}
@@ -103,6 +161,14 @@ func addSplitRules(c *nftables.Conn, t *nftables.Table, ch *nftables.Chain, p Sp
 			&expr.Lookup{SourceRegister: 1, SetName: s.set.Name, SetID: s.set.ID},
 		})
 	}
+	// everything else that is still undecided keeps the default path
+	var e []expr.Any
+	e = append(e, undecided...)
+	e = append(e, guard...)
+	e = append(e,
+		&expr.Immediate{Register: 1, Data: binaryutil.NativeEndian.PutUint32(decidedMark)},
+		&expr.Ct{Key: expr.CtKeyMARK, SourceRegister: true, Register: 1})
+	c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: e})
 }
 
 // snat rewrites the source of packets that carry ForceMark and leave through the tunnel.

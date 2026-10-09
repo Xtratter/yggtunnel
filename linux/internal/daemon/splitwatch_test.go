@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"sort"
 	"sync"
@@ -17,6 +18,7 @@ type fakeResolve struct {
 	errs                  map[string]error
 	calls                 map[string]int
 	block                 chan struct{} // when set, lookups of "slow.example.com" block on it, ignoring ctx
+	blockAll              chan struct{} // when set, EVERY lookup blocks on it, ignoring ctx
 	inFlight, maxInFlight atomic.Int32
 	delay                 time.Duration
 }
@@ -39,6 +41,9 @@ func (f *fakeResolve) lookup(ctx context.Context, host string) ([]netip.Addr, er
 	f.mu.Unlock()
 	if host == "slow.example.com" && b != nil {
 		<-b
+	}
+	if f.blockAll != nil {
+		<-f.blockAll
 	}
 	if f.delay > 0 {
 		time.Sleep(f.delay)
@@ -250,5 +255,30 @@ func TestWatcherDeduplicatesAddresses(t *testing.T) {
 	waitFor(t, func() bool { _, n := ap.get(); return n >= 1 })
 	if s, _ := ap.get(); len(s) != 1 || s[0] != "192.0.2.1" {
 		t.Fatalf("%v", s)
+	}
+}
+
+// Stopping must not wait for lookups in flight (a dead tunnel makes every one of them time out).
+func TestWatcherStopDoesNotWaitForSlowLookups(t *testing.T) {
+	f, ap := &fakeResolve{blockAll: make(chan struct{})}, &applied{}
+	defer close(f.blockAll)
+	var names []string
+	for i := 0; i < 100; i++ {
+		names = append(names, fmt.Sprintf("h%d.example.com", i))
+	}
+	w, _ := newTestWatcher(f, ap)
+	w.lookupTimeout = 10 * time.Second
+	w.Start(names)
+	waitFor(t, func() bool { return f.maxInFlight.Load() >= 8 })
+	done := make(chan struct{})
+	go func() { w.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("Stop waited for the lookups: Disconnect would hang for minutes on a dead tunnel")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, n := ap.get(); n != 0 {
+		t.Fatalf("an abandoned round was applied after Stop (%d)", n)
 	}
 }

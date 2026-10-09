@@ -235,7 +235,7 @@ func (d *Daemon) up() error {
 		return fail(err)
 	}
 	p := netconf.Params{IfName: ifName, MTU: tunnelMTU, Table: table, Mark: mark, CgroupPath: d.CgroupPath,
-		Split: netconf.SplitParams{Mode: split.Mode, Subnets: split.Subnets, Mark: mark}}
+		Split: netconf.SplitParams{Mode: split.Mode, Subnets: split.Subnets, Mark: mark, ForceDNS: len(split.Domains) > 0}}
 	if p.YggAddr, err = netip.ParseAddr(yggStr); err != nil {
 		return fail(fmt.Errorf("node address %q: %w", yggStr, err))
 	}
@@ -375,7 +375,7 @@ func (d *Daemon) applySplitLive(n splitcfg.Normalized) error {
 	if mode != "exclude" && mode != "only" {
 		return nil // mode all: the lists are only stored
 	}
-	if err := d.n.SplitSubnets(netconf.SplitParams{Mode: mode, Subnets: n.Subnets, Mark: mark}); err != nil {
+	if err := d.n.SplitSubnets(netconf.SplitParams{Mode: mode, Subnets: n.Subnets, Mark: mark, ForceDNS: len(n.Domains) > 0}); err != nil {
 		return err
 	}
 	if mode == "only" {

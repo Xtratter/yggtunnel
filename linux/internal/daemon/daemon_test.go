@@ -27,6 +27,9 @@ type calls struct {
 }
 
 func (c *calls) add(s string) { c.mu.Lock(); c.l = append(c.l, s); c.mu.Unlock() }
+
+// reset forgets what was recorded; the lock matters: the split watcher records from its own goroutine.
+func (c *calls) reset() { c.mu.Lock(); c.l = nil; c.mu.Unlock() }
 func (c *calls) String() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -71,6 +74,7 @@ type fakeNet struct {
 	ksParams   netconf.KSParams
 	subnetsErr error
 	namesMu    sync.Mutex
+	lastSplit  netconf.SplitParams
 	lastNames  []netip.Addr
 	ksErr      error
 	ksUndoErr  error // makes removing the kill switch fail
@@ -116,6 +120,9 @@ func (f *fakeNet) names() []netip.Addr {
 
 func (f *fakeNet) SplitSubnets(p netconf.SplitParams) error {
 	f.log.add(fmt.Sprintf("net.subnets:%d", len(p.Subnets)))
+	f.namesMu.Lock()
+	f.lastSplit = p
+	f.namesMu.Unlock()
 	return f.subnetsErr
 }
 
@@ -474,7 +481,7 @@ func (d *denyAll) Check(_ ipc.Peer, action string) error {
 func TestHandleRefusesWhenAuthorizerDenies(t *testing.T) {
 	r := newRig(t)
 	r.importSample(t) // imported before the authorizer is installed
-	r.log.l = nil
+	r.log.reset()
 	a := &denyAll{}
 	r.d.Auth = a
 	for _, cmd := range []string{"up", "down", "panic", "import"} {
@@ -679,7 +686,7 @@ func TestSetWhileConnectedAppliesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.importSample(t)
 	r.cmd("up")
-	r.log.l = nil
+	r.log.reset()
 	r.set(t, `{"killSwitch":true}`)
 	if r.log.String() != "net.ks:on(lan=true)" || !r.status(t).KillSwitchActive {
 		t.Fatalf("calls %s", r.log)
@@ -688,7 +695,7 @@ func TestSetWhileConnectedAppliesAtOnce(t *testing.T) {
 	if !strings.HasSuffix(r.log.String(), "net.ks:on(lan=false)") || !r.status(t).KillSwitchActive {
 		t.Fatalf("calls %s", r.log)
 	}
-	r.log.l = nil
+	r.log.reset()
 	r.set(t, `{"killSwitch":false}`)
 	if r.log.String() != "undo.ks" || r.status(t).KillSwitchActive {
 		t.Fatalf("calls %s", r.log)
@@ -717,7 +724,7 @@ func TestDownRemovesKillSwitch(t *testing.T) {
 	r.importSample(t)
 	r.set(t, `{"killSwitch":true}`)
 	r.cmd("up")
-	r.log.l = nil
+	r.log.reset()
 	r.cmd("down")
 	if got := r.log.String(); got != "undo.ks,undo.c,undo.b,undo.a,core.stop" {
 		t.Fatalf("calls %s", got)
@@ -846,7 +853,7 @@ func TestFailedDisarmKeepsArmedAndRetriesOnDown(t *testing.T) {
 		t.Fatalf("active=%v settings=%+v: a failed removal must leave both as they were", s.KillSwitchActive, s.Settings)
 	}
 	r.n.ksUndoErr = nil
-	r.log.l = nil
+	r.log.reset()
 	r.cmd("down")
 	if !strings.Contains(r.log.String(), "undo.ks") {
 		t.Fatalf("down did not retry the removal: %s", r.log)
@@ -872,7 +879,7 @@ func TestSetWhileReconnectingApplies(t *testing.T) {
 	r.importSample(t)
 	r.cmd("up")
 	r.d.setState(Reconnecting, "")
-	r.log.l = nil
+	r.log.reset()
 	if err := r.set(t, `{"killSwitch":true}`); err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +992,7 @@ func TestSetSplitListChangeAppliesLive(t *testing.T) {
 	r, rs := newSplitRig(t)
 	r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
 	r.cmd("up")
-	r.log.l = nil
+	r.log.reset()
 	if err := r.set(t, `{"split":{"mode":"only","subnets":["198.51.100.0/24","192.0.2.0/24"],"domains":["example.net"]}}`); err != nil {
 		t.Fatal(err)
 	}
@@ -1107,5 +1114,44 @@ func TestKillSwitchAndSplitInOneSet(t *testing.T) {
 	s := r.status(t).Settings
 	if !s.KillSwitch || s.AllowLAN || s.Split.Mode != "exclude" {
 		t.Fatalf("%+v", s)
+	}
+}
+
+func TestUpForceDNSFollowsTheListedDomains(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"]}}`)
+	r.cmd("up")
+	if r.n.params.Split.ForceDNS {
+		t.Fatal("the tunnel's DNS servers must not be forced while no name is listed")
+	}
+	r.cmd("down")
+	r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`)
+	r.cmd("up")
+	if !r.n.params.Split.ForceDNS {
+		t.Fatal("a listed name needs the tunnel's DNS servers")
+	}
+}
+
+func TestSetSplitListChangeSwitchesDNSForcing(t *testing.T) {
+	r, _ := newSplitRig(t)
+	r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"]}}`)
+	r.cmd("up")
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"],"domains":["example.com"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	r.n.namesMu.Lock()
+	got := r.n.lastSplit
+	r.n.namesMu.Unlock()
+	if !got.ForceDNS {
+		t.Fatalf("live change with a first domain: %+v", got)
+	}
+	if err := r.set(t, `{"split":{"mode":"only","subnets":["203.0.113.0/24"]}}`); err != nil {
+		t.Fatal(err)
+	}
+	r.n.namesMu.Lock()
+	got = r.n.lastSplit
+	r.n.namesMu.Unlock()
+	if got.ForceDNS {
+		t.Fatalf("live change removing the last domain: %+v", got)
 	}
 }

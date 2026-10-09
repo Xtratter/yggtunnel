@@ -33,6 +33,8 @@ type splitWatcher struct {
 	at       time.Time
 	err      error
 
+	ctx     context.Context // cancelled by Stop: ends the lookups in flight and the dispatching
+	cancel  context.CancelFunc
 	wake    chan struct{}
 	stop    chan struct{}
 	done    chan struct{}
@@ -41,7 +43,9 @@ type splitWatcher struct {
 }
 
 func newSplitWatcher(lookup func(context.Context, string) ([]netip.Addr, error), apply func([]netip.Addr) error) *splitWatcher {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &splitWatcher{
+		ctx: ctx, cancel: cancel,
 		lookup: lookup, apply: apply,
 		interval: splitInterval, lookupTimeout: splitLookupTimeout,
 		newTicker: func(d time.Duration) (<-chan time.Time, func()) {
@@ -91,6 +95,7 @@ func (w *splitWatcher) Stop() {
 	w.stopped = true
 	started := w.started
 	close(w.stop)
+	w.cancel() // do not wait for slow lookups: a dead tunnel would make every one of them time out
 	w.mu.Unlock()
 	if started {
 		<-w.done
@@ -138,12 +143,18 @@ func (w *splitWatcher) round() {
 	sem := make(chan struct{}, splitMaxLookups)
 	var wg sync.WaitGroup
 	for i, host := range domains {
+		select {
+		case sem <- struct{}{}:
+		case <-w.ctx.Done():
+		}
+		if w.ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func(i int, host string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			ctx, cancel := context.WithTimeout(context.Background(), w.lookupTimeout)
+			ctx, cancel := context.WithTimeout(w.ctx, w.lookupTimeout)
 			defer cancel()
 			ch := make(chan lookupResult, 1) // buffered: an abandoned lookup can still finish and be dropped
 			go func() {
@@ -159,6 +170,9 @@ func (w *splitWatcher) round() {
 		}(i, host)
 	}
 	wg.Wait()
+	if w.ctx.Err() != nil { // stopped meanwhile: the round is abandoned and nothing is applied
+		return
+	}
 
 	w.mu.Lock()
 	keep := map[string][]netip.Addr{}

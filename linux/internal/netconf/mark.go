@@ -53,6 +53,9 @@ func addMark(tx *Tx, p Params) error {
 			t := c.AddTable(&nftables.Table{Family: nftables.TableFamilyINet, Name: markTable})
 			ch := c.AddChain(&nftables.Chain{Name: "mark", Table: t, Type: nftables.ChainTypeRoute,
 				Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityMangle})
+			if p.Split.active() { // a connection keeps the path it started on
+				c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: restoreMark()})
+			}
 			c.AddRule(&nftables.Rule{Table: t, Chain: ch, Exprs: []expr.Any{
 				&expr.Socket{Key: expr.SocketKeyCgroupv2, Level: level, Register: 1},
 				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint64(id)},
@@ -61,6 +64,7 @@ func addMark(tx *Tx, p Params) error {
 			}})
 			if p.Split.active() {
 				addSplitChain(c, t, ch, p.Split)
+				addSourceGuard(c, t, p)
 			}
 			nat := c.AddChain(&nftables.Chain{Name: "nat", Table: t, Type: nftables.ChainTypeNAT,
 				Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
