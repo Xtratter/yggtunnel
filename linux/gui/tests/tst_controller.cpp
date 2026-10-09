@@ -89,6 +89,14 @@ private slots:
         r.ctl.up();
         QVERIFY(!r.ctl.busy()); // nothing to wait for
     }
+    void unreachableErrorAppearsWithoutAnyOtherChange() {
+        Rig r(sock());
+        QSignalSpy spy(&r.ctl, &Controller::changed);
+        r.client.start();
+        QTRY_VERIFY(!r.ctl.reachError().isEmpty());
+        QVERIFY(spy.count() >= 1); // QML bindings get told
+        QVERIFY(r.ctl.history().first().contains("unreachable"));
+    }
     void recoversWhenDaemonAppears() {
         Rig r(sock());
         r.client.start();

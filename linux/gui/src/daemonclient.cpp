@@ -54,8 +54,13 @@ void DaemonClient::tryConnect()
     connect(m_sock, &QLocalSocket::readyRead, this, &DaemonClient::onReadyRead);
     connect(m_sock, &QLocalSocket::disconnected, this, &DaemonClient::onDisconnected);
     connect(m_sock, &QLocalSocket::errorOccurred, this, [this](QLocalSocket::LocalSocketError e) {
-        if (!isConnected())
-            m_lastError = describe(e, m_path, m_sock->errorString());
+        if (isConnected())
+            return;
+        const QString text = describe(e, m_path, m_sock->errorString());
+        if (text != m_lastError) {
+            m_lastError = text;
+            emit lastConnectErrorChanged();
+        }
     });
     m_sock->connectToServer(m_path);
 }

@@ -13,7 +13,9 @@ target_include_directories(ygg_core PUBLIC src)
 target_link_libraries(ygg_core PUBLIC Qt6::Core Qt6::Network)
 
 add_executable(yggtunnel-gui src/main.cpp)
-target_link_libraries(yggtunnel-gui PRIVATE ygg_core Qt6::Gui)
+qt_add_resources(yggtunnel-gui qml PREFIX "/qml" BASE qml
+    FILES qml/Main.qml qml/StatusCard.qml qml/Island.qml qml/ActionButton.qml)
+target_link_libraries(yggtunnel-gui PRIVATE ygg_core Qt6::Gui Qt6::Quick Qt6::QuickControls2)
 target_compile_definitions(yggtunnel-gui PRIVATE YGG_VERSION="${PROJECT_VERSION}")
 
 enable_testing()

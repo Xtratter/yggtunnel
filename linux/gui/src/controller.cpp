@@ -18,6 +18,12 @@ Controller::Controller(DaemonClient *client, QObject *parent) : QObject(parent),
     connect(&m_poll, &QTimer::timeout, this, &Controller::pollStatus);
     connect(client, &DaemonClient::connectedChanged, this, &Controller::onConnectedChanged);
     connect(client, &DaemonClient::eventReceived, this, &Controller::onEvent);
+    connect(client, &DaemonClient::lastConnectErrorChanged, this, [this] {
+        if (!m_reachable) { // the reason shown while the daemon cannot be reached
+            setState("unreachable", m_client->lastConnectError());
+            emit changed();
+        }
+    });
     if (client->isConnected())
         onConnectedChanged(true);
 }

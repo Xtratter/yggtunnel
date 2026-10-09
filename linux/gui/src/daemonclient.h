@@ -30,6 +30,7 @@ public:
 
 signals:
     void connectedChanged(bool connected);
+    void lastConnectErrorChanged();
     void eventReceived(const QString &kind, const QJsonValue &data);
 
 private:
