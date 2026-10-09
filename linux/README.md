@@ -3,8 +3,8 @@
 [Русский](README.ru.md) · **English**
 
 A client for your own server through the [Yggdrasil](https://yggdrasil-network.github.io/) network, the same
-Go core and the same `yggtunnel://` profiles as the Android app. Status: **0.3.0, daemon, command line, a Qt window and a kill switch**;
-split routing is the next step.
+Go core and the same `yggtunnel://` profiles as the Android app. Status: **0.4.0, daemon, command line, a Qt window, a kill switch and split routing by subnet and domain**;
+routing by application and a package are the next steps.
 
 ```
 yggtunnel-gui ──┐
@@ -66,6 +66,10 @@ yggtunnelctl down
 yggtunnelctl log
 yggtunnelctl killswitch on          # drop traffic that bypasses the tunnel while connected (off by default)
 yggtunnelctl lan off                # with the kill switch: also drop local-network traffic (allowed by default)
+yggtunnelctl split mode only        # all | exclude | only — which destinations use the tunnel (disconnected only)
+yggtunnelctl split add 203.0.113.0/24   # a subnet, an address or a domain (example.com)
+yggtunnelctl split remove example.com
+yggtunnelctl split show
 yggtunnelctl panic                  # remove every route, rule and DNS setting the daemon added
 ```
 
@@ -90,6 +94,28 @@ Limits, on purpose: if the daemon is killed or crashes, the kill switch is remov
 crash must never lock you out of the network; traffic that is forwarded through this machine (containers,
 virtual-machine bridges) is not covered; nothing is dropped before `up` completes.
 
+## Split routing
+
+Three modes (`split mode`): **all** — everything goes through the tunnel (the default); **exclude** — everything
+except the list; **only** — nothing except the list. The list holds subnets (`203.0.113.0/24`, a bare
+address is a `/32`, IPv6 works) and domain names. The same card is in the window («Routing»).
+
+- The mode can be changed only while disconnected; the lists can be changed at any time and apply at once.
+- Domains are resolved by the daemon with the system resolver every 60 seconds and whenever the list changes.
+  Their addresses stay in the firewall for 5 minutes. A name that fails to resolve keeps its last addresses and
+  the problem is shown in `status`. **Subdomains are not included** — list each name; names that are served from
+  many addresses (CDNs) may be answered differently between lookups.
+- In **only** mode traffic to the list is marked and routed into the tunnel, the rest goes directly; the tunnel's
+  DNS servers are always reached through the tunnel, and only the listed names are asked there. The daemon's own
+  traffic never enters the tunnel, even to a listed address.
+- With the **kill switch** in **only** mode it protects exactly what should be tunnelled: if the tunnel route
+  disappears, traffic to the list is dropped; everything else keeps going where it was meant to.
+- Entries are checked: at most 500 subnets and 500 domains; default routes (`0.0.0.0/0`, `::/0`), anything that
+  overlaps `200::/7` or the loopback ranges, wildcards and bare top-level names are refused.
+- Check by hand: `ip rule`, `sudo nft list table inet yggtunnel` (the chain `split` and the sets `names4`, `names6`).
+
+Not included yet: routing by application.
+
 ## What it changes on the system
 
 While connected: the interface `yggtun0` (the node's Yggdrasil address `/7`, `clientIp4/32`, `clientIp6/128`,
@@ -105,5 +131,5 @@ instead of applying them.
 
 ## Not yet
 
-Split routing (by app and by subnet or domain), peer auto-pick and lane settings in the window, a tray icon, a package
+Routing by application, peer auto-pick and lane settings in the window, a tray icon, a package
 (PKGBUILD). See `docs/superpowers/specs/2026-10-09-linux-client-design.md`.

@@ -2,6 +2,11 @@
 
 [Русский](CHANGELOG.ru.md) · **English**
 
+## 0.4.0 — unreleased
+
+- Split routing by subnet and domain: modes all / exclude / only, lists applied live, domains resolved by the daemon
+  (every 60 s); `yggtunnelctl split …`, the «Routing» card in the window; the kill switch and the tunnel's DNS follow the mode
+
 ## 0.3.0 — unreleased
 
 - Kill switch (off by default): while connected, traffic that is not going through the tunnel is dropped, except the
