@@ -36,12 +36,18 @@ class TstController : public QObject {
         DaemonClient client;
         Controller ctl;
         QString state = "off";
+        QJsonObject settings{{"killSwitch", false}, {"allowLan", true}};
+        bool ksActive = false;
         Rig(const QString &path) : client(path), ctl(&client) {
             client.setRetryInterval(100);
             ctl.setPollInterval(50);
             daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *, QString *) -> QJsonValue {
-                if (cmd == "status")
-                    return statusData(state, state == "connected");
+                if (cmd == "status") {
+                    QJsonObject o = statusData(state, state == "connected");
+                    o["settings"] = settings;
+                    o["killSwitchActive"] = ksActive;
+                    return o;
+                }
                 if (cmd == "log")
                     return QString("node log line");
                 return QJsonValue();
@@ -183,6 +189,73 @@ private slots:
         QTRY_COMPARE(spy.count(), 1);
         QCOMPARE(spy.at(0).at(0).toBool(), false);
         QVERIFY(!r.daemon.received.contains("import")); // a huge line would make the daemon drop the connection
+    }
+    void settingsAreReadFromStatus() {
+        Rig r(sock());
+        r.settings = QJsonObject{{"killSwitch", true}, {"allowLan", false}};
+        r.ksActive = true;
+        r.state = "connected";
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_VERIFY(r.ctl.killSwitch());
+        QVERIFY(!r.ctl.allowLan());
+        QVERIFY(r.ctl.killSwitchActive());
+    }
+    void settingsDefaultsBeforeAnyStatus() {
+        Rig r(sock());
+        QVERIFY(!r.ctl.killSwitch());
+        QVERIFY(r.ctl.allowLan());
+        QVERIFY(!r.ctl.killSwitchActive());
+    }
+    void setKillSwitchSendsSetAndDisablesWhileInFlight() {
+        Rig r(sock());
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        QTRY_COMPARE(r.daemon.connections(), 1);
+        r.daemon.silent = true; // the answer never comes: the call stays in flight
+        r.ctl.setKillSwitch(true);
+        QVERIFY(r.ctl.busy());
+        QTRY_VERIFY(r.daemon.received.contains("set"));
+        QCOMPARE(r.daemon.receivedArgs.at(r.daemon.received.indexOf("set")), (QJsonObject{{"killSwitch", true}}));
+        r.ctl.setAllowLan(false); // ignored while busy
+        QTest::qWait(100);
+        QCOMPARE(r.daemon.received.count("set"), 1);
+    }
+    void setAllowLanSendsOnlyThatField() {
+        Rig r(sock());
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.setAllowLan(false);
+        QTRY_VERIFY(r.daemon.received.contains("set"));
+        QCOMPARE(r.daemon.receivedArgs.at(r.daemon.received.indexOf("set")), (QJsonObject{{"allowLan", false}}));
+    }
+    void killSwitchActiveComesOnlyFromTheDaemon() {
+        Rig r(sock());
+        r.settings = QJsonObject{{"killSwitch", false}, {"allowLan", true}};
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.setKillSwitch(true); // the fake answers ok but its status keeps saying "not active"
+        QTRY_VERIFY(!r.ctl.busy());
+        QTest::qWait(200);
+        QVERIFY(!r.ctl.killSwitchActive());
+        QVERIFY(!r.ctl.killSwitch()); // and the stored setting is whatever the daemon reports
+    }
+    void setErrorIsShown() {
+        Rig r(sock());
+        auto base = r.daemon.handler;
+        r.daemon.handler = [base](const QString &cmd, const QJsonObject &a, bool *ok, QString *e) -> QJsonValue {
+            if (cmd == "set") { *ok = false; *e = "not authorized by polkit"; return QJsonValue(); }
+            return base(cmd, a, ok, e);
+        };
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.setKillSwitch(true);
+        QTRY_COMPARE(r.ctl.lastError(), QString("not authorized by polkit"));
+        QVERIFY(!r.ctl.busy());
     }
     void historyKeepsNewestFirstAndCaps200() {
         Rig r(sock());

@@ -108,6 +108,18 @@ ApplicationWindow {
                 onPanicClicked: panicDialog.open()
             }
 
+            ProtectionCard {
+                Layout.fillWidth: true
+                visible: ctl.daemonReachable
+                killSwitch: ctl.killSwitch
+                allowLan: ctl.allowLan
+                active: ctl.killSwitchActive
+                connected: ctl.state === "connected"
+                busy: ctl.busy
+                onKillSwitchRequested: function (on) { ctl.setKillSwitch(on) }
+                onAllowLanRequested: function (allow) { ctl.setAllowLan(allow) }
+            }
+
             PeersCard {
                 Layout.fillWidth: true
                 visible: ctl.daemonReachable && (ctl.state === "starting" || ctl.state === "connected" || ctl.state === "reconnecting")

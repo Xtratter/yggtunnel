@@ -85,11 +85,17 @@ struct App {
     QString error;
     bool longUri = false;
     QString importError;
+    QJsonObject settings{{"killSwitch", false}, {"allowLan", true}};
+    bool ksActive = false;
 
     App(const QString &sockPath, bool listen = true) {
         daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *ok, QString *err) -> QJsonValue {
-            if (cmd == "status")
-                return statusData(state, profile, state == "connected", error, longUri);
+            if (cmd == "status") {
+                QJsonObject o = statusData(state, profile, state == "connected", error, longUri);
+                o["settings"] = settings;
+                o["killSwitchActive"] = ksActive;
+                return o;
+            }
             if (cmd == "log")
                 return QString("node log line");
             if (cmd == "import" && !importError.isEmpty()) {
@@ -222,6 +228,46 @@ private slots:
         QVERIFY2(a.item("island")->property("shown").toBool(), "a sticky island must stay while connecting");
         a.daemon.close();
         QTRY_VERIFY(!a.item("island")->property("shown").toBool());
+    }
+    void protectionCardShowsStates() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("protectionCard"));
+        QTRY_COMPARE(a.text("protectionStatus"), QString("Off"));
+        a.settings = QJsonObject{{"killSwitch", true}, {"allowLan", true}};
+        QTRY_COMPARE(a.text("protectionStatus"), QString("Armed: it starts with the next connection"));
+        a.state = "connected";
+        a.ksActive = true;
+        QTRY_COMPARE(a.text("protectionStatus"), QString("Active"));
+        QVERIFY(a.item("killSwitchSwitch")->property("checked").toBool());
+    }
+    void lanSwitchDisabledWhileKillSwitchOff() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("protectionCard"));
+        QVERIFY(!a.item("lanSwitch")->property("enabled").toBool());
+        a.settings = QJsonObject{{"killSwitch", true}, {"allowLan", true}};
+        QTRY_VERIFY(a.item("lanSwitch")->property("enabled").toBool());
+    }
+    void togglingSendsSet() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("protectionCard"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        a.item("killSwitchSwitch")->setProperty("checked", true); // what a click does ...
+        QMetaObject::invokeMethod(a.item("killSwitchSwitch"), "clicked"); // ... before it emits clicked
+        QTRY_VERIFY(a.daemon.received.contains("set"));
+        QCOMPARE(a.daemon.receivedArgs.at(a.daemon.received.indexOf("set")), (QJsonObject{{"killSwitch", true}}));
+    }
+    void protectionCardHiddenWhenUnreachable() {
+        App a(sock(), false);
+        QTRY_COMPARE(a.text("statusLabel"), QString("Daemon not reachable"));
+        QVERIFY(!a.visible("protectionCard"));
+    }
+    void grabsProtectionScreenshot() {
+        App a(sock());
+        a.state = "connected";
+        a.settings = QJsonObject{{"killSwitch", true}, {"allowLan", false}};
+        a.ksActive = true;
+        QTRY_COMPARE(a.text("protectionStatus"), QString("Active"));
+        a.shot("protection.png");
     }
     void islandStaysQuietAtStartup() {
         App a(sock());

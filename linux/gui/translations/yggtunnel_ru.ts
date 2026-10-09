@@ -4,27 +4,27 @@
 <context>
     <name>Controller</name>
     <message>
-        <location filename="../src/controller.cpp" line="149"/>
+        <location filename="../src/controller.cpp" line="172"/>
         <source>The profile is too large (over 64 KiB).</source>
         <translation>Профиль слишком велик (больше 64 КиБ).</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="153"/>
+        <location filename="../src/controller.cpp" line="176"/>
         <source>Paste a yggtunnel://import#… link first.</source>
         <translation>Сначала вставьте ссылку yggtunnel://import#…</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="157"/>
+        <location filename="../src/controller.cpp" line="180"/>
         <source>The daemon is not reachable.</source>
         <translation>Демон недоступен.</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="171"/>
+        <location filename="../src/controller.cpp" line="194"/>
         <source>Cannot read the file: %1</source>
         <translation>Не удаётся прочитать файл: %1</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="177"/>
+        <location filename="../src/controller.cpp" line="200"/>
         <source>The file is too large for a profile (over 64 KiB).</source>
         <translation>Файл слишком велик для профиля (больше 64 КиБ).</translation>
     </message>
@@ -185,22 +185,22 @@
         <translation>Не удалось подключиться</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="124"/>
+        <location filename="../qml/Main.qml" line="136"/>
         <source>Log</source>
         <translation>Журнал</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="130"/>
+        <location filename="../qml/Main.qml" line="142"/>
         <source>Import a profile</source>
         <translation>Импорт профиля</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="150"/>
+        <location filename="../qml/Main.qml" line="162"/>
         <source>Disable everything?</source>
         <translation>Отключить всё?</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="163"/>
+        <location filename="../qml/Main.qml" line="175"/>
         <source>This disconnects and removes every route, rule and DNS setting that YggTunnel added.</source>
         <translation>Соединение будет разорвано, а все маршруты, правила и настройки DNS, добавленные YggTunnel, удалены.</translation>
     </message>
@@ -221,6 +221,49 @@
         <location filename="../qml/PeersCard.qml" line="72"/>
         <source>%1 ms</source>
         <translation>%1 мс</translation>
+    </message>
+</context>
+<context>
+    <name>ProtectionCard</name>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="37"/>
+        <source>Protection</source>
+        <translation>Защита</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="43"/>
+        <source>Active</source>
+        <translation>Работает</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="44"/>
+        <source>Off</source>
+        <translation>Выключено</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="45"/>
+        <source>Not active</source>
+        <translation>Не работает</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="46"/>
+        <source>Armed: it starts with the next connection</source>
+        <translation>Готов: включится при следующем подключении</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="60"/>
+        <source>Kill switch</source>
+        <translation>Kill switch</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="73"/>
+        <source>Traffic that is not going through the tunnel is dropped while you are connected.</source>
+        <translation>Трафик, идущий мимо туннеля, отбрасывается, пока вы подключены.</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="81"/>
+        <source>Allow local network</source>
+        <translation>Разрешить локальную сеть</translation>
     </message>
 </context>
 <context>

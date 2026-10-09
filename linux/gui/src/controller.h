@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QJsonValue>
 #include <QObject>
 #include <QStringList>
@@ -24,6 +25,9 @@ class Controller : public QObject {
     Q_PROPERTY(QVariantList peers READ peers NOTIFY changed)
     Q_PROPERTY(QString nodeAddress READ nodeAddress NOTIFY changed)
     Q_PROPERTY(double handshakeAgo READ handshakeAgo NOTIFY changed)
+    Q_PROPERTY(bool killSwitch READ killSwitch NOTIFY changed)             // the setting, as the daemon reports it
+    Q_PROPERTY(bool allowLan READ allowLan NOTIFY changed)
+    Q_PROPERTY(bool killSwitchActive READ killSwitchActive NOTIFY changed) // armed right now; only the daemon says so
     Q_PROPERTY(QString nodeLog READ nodeLog NOTIFY logChanged)
     Q_PROPERTY(QStringList history READ history NOTIFY historyChanged)
 public:
@@ -40,6 +44,9 @@ public:
     QVariantList peers() const { return m_peers; }
     QString nodeAddress() const { return m_nodeAddress; }
     double handshakeAgo() const { return m_handshakeAgo; }
+    bool killSwitch() const { return m_killSwitch; }
+    bool allowLan() const { return m_allowLan; }
+    bool killSwitchActive() const { return m_ksActive; }
     QString nodeLog() const { return m_nodeLog; }
     QStringList history() const { return m_history; }
 
@@ -48,6 +55,8 @@ public:
     Q_INVOKABLE void up();
     Q_INVOKABLE void down();
     Q_INVOKABLE void panic();
+    Q_INVOKABLE void setKillSwitch(bool on);
+    Q_INVOKABLE void setAllowLan(bool allow);
     Q_INVOKABLE void importLink(const QString &text);
     Q_INVOKABLE void importFile(const QUrl &file); // refuses files over 64 KiB
     Q_INVOKABLE void refreshLog();
@@ -65,12 +74,16 @@ private:
     void applyStatus(const QJsonObject &s);
     void setState(const QString &state, const QString &error);
     void runAction(const QString &cmd);
+    void sendSettings(const QJsonObject &args);
 
     DaemonClient *m_client;
     QTimer m_poll;
     bool m_reachable = false;
     bool m_busy = false;
     bool m_polling = false;
+    bool m_killSwitch = false;
+    bool m_allowLan = true;
+    bool m_ksActive = false;
     QString m_state = "unreachable";
     QString m_statusError; // the daemon's own last error, replaced by every status
     QString m_actionError; // why this window's last command failed; cleared by the next command or reconnect

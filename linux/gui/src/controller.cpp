@@ -62,6 +62,7 @@ void Controller::onConnectedChanged(bool connected)
         m_polling = false;
         m_peers.clear();
         m_handshakeAgo = -1;
+        m_ksActive = false; // nobody can vouch for it any more
         setState("unreachable", m_client->lastConnectError());
     }
     emit changed();
@@ -108,6 +109,10 @@ void Controller::applyStatus(const QJsonObject &s)
     const QString err = s["error"].toString();
     m_statusError = err; // an empty answer clears an old failure
     const QJsonObject node = s["node"].toObject();
+    const QJsonObject settings = s["settings"].toObject();
+    m_killSwitch = settings["killSwitch"].toBool(false);
+    m_allowLan = settings["allowLan"].toBool(true);
+    m_ksActive = s["killSwitchActive"].toBool(false);
     m_nodeAddress = node["address"].toString();
     m_handshakeAgo = node["tunnel"].toObject()["handshakeAgo"].toDouble(-1);
     m_peers.clear();
@@ -138,6 +143,24 @@ void Controller::runAction(const QString &cmd)
         pollStatus();
     });
 }
+
+void Controller::sendSettings(const QJsonObject &args)
+{
+    if (!m_reachable || m_busy)
+        return;
+    m_busy = true;
+    m_actionError.clear();
+    emit changed();
+    m_client->call("set", args, [this](bool ok, const QString &error, const QJsonValue &) {
+        m_busy = false;
+        m_actionError = ok ? QString() : error;
+        emit changed();
+        pollStatus(); // the settings and "active" shown are whatever the daemon reports
+    });
+}
+
+void Controller::setKillSwitch(bool on) { sendSettings(QJsonObject{{"killSwitch", on}}); }
+void Controller::setAllowLan(bool allow) { sendSettings(QJsonObject{{"allowLan", allow}}); }
 
 void Controller::up() { runAction("up"); }
 void Controller::down() { runAction("down"); }
