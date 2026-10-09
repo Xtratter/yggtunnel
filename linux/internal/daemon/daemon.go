@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"github.com/Xtratter/yggtunnel/go/core"
+	"github.com/Xtratter/yggtunnel/linux/internal/auth"
 	"github.com/Xtratter/yggtunnel/linux/internal/ipc"
 	"github.com/Xtratter/yggtunnel/linux/internal/netconf"
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
@@ -51,6 +52,9 @@ var dnsServers = []netip.Addr{netip.MustParseAddr("1.1.1.1"), netip.MustParseAdd
 type Daemon struct {
 	// CgroupPath is the absolute cgroup v2 directory of the daemon; its traffic bypasses the tunnel.
 	CgroupPath string
+	// Auth is asked before every state-changing command; nil allows all (development and tests only —
+	// cmd/yggtunneld refuses to run without it outside dry-run).
+	Auth auth.Authorizer
 	// GenConfig creates a fresh node config on first use.
 	GenConfig func() (string, error)
 
@@ -72,7 +76,15 @@ func New(st *store.Store, c Core, n Net, emit func(ipc.Event)) *Daemon {
 }
 
 // Handle implements ipc.Handler.
-func (d *Daemon) Handle(_ context.Context, _ ipc.Peer, req ipc.Request) (any, error) {
+func (d *Daemon) Handle(_ context.Context, peer ipc.Peer, req ipc.Request) (any, error) {
+	switch req.Cmd {
+	case "up", "down", "panic", "import":
+		if d.Auth != nil {
+			if err := d.Auth.Check(peer, auth.ActionConnect); err != nil {
+				return nil, err
+			}
+		}
+	}
 	switch req.Cmd {
 	case "up":
 		return nil, d.up()

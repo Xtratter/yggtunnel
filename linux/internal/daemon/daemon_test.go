@@ -411,3 +411,44 @@ func TestNodeConfigPersistsAcrossUps(t *testing.T) {
 		t.Fatalf("node config generated %d times", n)
 	}
 }
+
+type denyAll struct{ asked []string }
+
+func (d *denyAll) Check(_ ipc.Peer, action string) error {
+	d.asked = append(d.asked, action)
+	return errors.New("not authorized by polkit")
+}
+
+func TestHandleRefusesWhenAuthorizerDenies(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t) // imported before the authorizer is installed
+	r.log.l = nil
+	a := &denyAll{}
+	r.d.Auth = a
+	for _, cmd := range []string{"up", "down", "panic", "import"} {
+		_, err := r.d.Handle(context.Background(), ipc.Peer{PID: 1}, ipc.Request{Cmd: cmd, Args: json.RawMessage(`{"link":"x"}`)})
+		if err == nil || !strings.Contains(err.Error(), "not authorized") {
+			t.Errorf("%s: err=%v", cmd, err)
+		}
+	}
+	if r.log.String() != "" || r.state(t) != "off" {
+		t.Fatalf("a refused command changed something: calls=%s state=%s", r.log, r.state(t))
+	}
+	if len(a.asked) != 4 || a.asked[0] != "io.github.xtratter.yggtunnel.connect" {
+		t.Fatalf("asked %v", a.asked)
+	}
+}
+
+func TestReadOnlyCommandsSkipAuthorizer(t *testing.T) {
+	r := newRig(t)
+	a := &denyAll{}
+	r.d.Auth = a
+	for _, cmd := range []string{"status", "log", "version"} {
+		if _, err := r.d.Handle(context.Background(), ipc.Peer{PID: 1}, ipc.Request{Cmd: cmd}); err != nil {
+			t.Errorf("%s: %v", cmd, err)
+		}
+	}
+	if len(a.asked) != 0 {
+		t.Fatalf("asked %v", a.asked)
+	}
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>YggTunnel</vendor>
+  <action id="io.github.xtratter.yggtunnel.connect">
+    <description>Connect, disconnect or change the YggTunnel profile</description>
+    <message>Authentication is required to change the YggTunnel connection</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <!-- the socket itself is limited to the group "yggtunnel" -->
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
