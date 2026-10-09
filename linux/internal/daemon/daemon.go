@@ -37,6 +37,8 @@ type Core interface {
 type Net interface {
 	Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.File, error)
 	Recover(prev store.PrevState) error
+	// KillSwitch arms (on) or removes (off) the kill switch as a step of tx; arming again replaces it.
+	KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error
 }
 
 // Tunnel parameters, the same as the Android app's.
@@ -71,6 +73,7 @@ type Daemon struct {
 	state   State
 	lastErr string
 	tx      *netconf.Tx
+	ksArmed bool // guarded by mu
 }
 
 // New creates a daemon in the Off state.
@@ -81,7 +84,7 @@ func New(st *store.Store, c Core, n Net, emit func(ipc.Event)) *Daemon {
 // Handle implements ipc.Handler.
 func (d *Daemon) Handle(_ context.Context, peer ipc.Peer, req ipc.Request) (any, error) {
 	switch req.Cmd {
-	case "up", "down", "panic", "import":
+	case "up", "down", "panic", "import", "set":
 		if d.Auth != nil {
 			if err := d.Auth.Check(peer, auth.ActionConnect); err != nil {
 				return nil, err
@@ -105,6 +108,8 @@ func (d *Daemon) Handle(_ context.Context, peer ipc.Peer, req ipc.Request) (any,
 			return nil, errors.New("import needs {\"link\": ...}")
 		}
 		return nil, d.importLink(a.Link)
+	case "set":
+		return nil, d.set(req.Args)
 	case "log":
 		return d.c.Log(), nil
 	case "version":
@@ -121,6 +126,10 @@ func (d *Daemon) status() Status {
 		s.Node = json.RawMessage(d.c.Status())
 	}
 	s.Profile = d.st.MaskedProfile()
+	s.Settings = d.st.Settings()
+	d.mu.Lock()
+	s.KillSwitchActive = d.ksArmed
+	d.mu.Unlock()
 	return s
 }
 
@@ -214,8 +223,65 @@ func (d *Daemon) up() error {
 		syscall.Close(fd)
 		return fail(err)
 	}
+	if s := d.st.Settings(); s.KillSwitch { // armed last: the tunnel carries traffic before anything is dropped
+		if err := d.armKillSwitch(s); err != nil {
+			return fail(fmt.Errorf("kill switch: %w", err))
+		}
+	}
 	d.setState(Connected, "")
 	return nil
+}
+
+func (d *Daemon) armKillSwitch(s store.Settings) error {
+	if err := d.n.KillSwitch(d.tx, true, netconf.KSParams{IfName: ifName, Mark: mark, AllowLAN: s.AllowLAN}); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.ksArmed = true
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *Daemon) disarmKillSwitch() error {
+	err := d.n.KillSwitch(d.tx, false, netconf.KSParams{})
+	d.mu.Lock()
+	d.ksArmed = false
+	d.mu.Unlock()
+	return err
+}
+
+// set changes the settings. While connected the change is applied first and stored only if it
+// worked; otherwise it is only stored (`up` reads it after the tunnel is attached). It waits for a
+// running up/down, so a change made during `up` takes effect right after it.
+func (d *Daemon) set(args json.RawMessage) error {
+	var a struct {
+		KillSwitch *bool `json:"killSwitch"`
+		AllowLAN   *bool `json:"allowLan"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil || (a.KillSwitch == nil && a.AllowLAN == nil) {
+		return errors.New(`set needs {"killSwitch": bool} and/or {"allowLan": bool}`)
+	}
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	s := d.st.Settings()
+	if a.KillSwitch != nil {
+		s.KillSwitch = *a.KillSwitch
+	}
+	if a.AllowLAN != nil {
+		s.AllowLAN = *a.AllowLAN
+	}
+	if d.cur() == Connected {
+		var err error
+		if s.KillSwitch {
+			err = d.armKillSwitch(s)
+		} else {
+			err = d.disarmKillSwitch()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return d.st.SaveSettings(s)
 }
 
 // teardown undoes the network changes and stops the core. Errors are logged by the caller's state
@@ -227,6 +293,9 @@ func (d *Daemon) teardown() error {
 		d.tx = nil
 	}
 	d.c.Stop()
+	d.mu.Lock()
+	d.ksArmed = false // the table went with the transaction
+	d.mu.Unlock()
 	return err
 }
 

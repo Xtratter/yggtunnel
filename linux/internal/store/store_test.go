@@ -154,3 +154,24 @@ func TestNodeConfigGeneratedOnceAndEncrypted(t *testing.T) {
 		t.Fatal("node config stored in clear")
 	}
 }
+
+func TestSettingsDefaults(t *testing.T) {
+	s := open(t).Settings()
+	if s.KillSwitch || !s.AllowLAN {
+		t.Fatalf("defaults %+v: want kill switch off, local network allowed", s)
+	}
+}
+
+func TestSettingsPersistAndSurviveDamagedFile(t *testing.T) {
+	st := open(t)
+	if err := st.SaveSettings(Settings{KillSwitch: true, AllowLAN: false}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Settings(); !got.KillSwitch || got.AllowLAN {
+		t.Fatalf("got %+v", got)
+	}
+	os.WriteFile(filepath.Join(st.Dir, "settings.json"), []byte("{broken"), 0o600)
+	if got := st.Settings(); got.KillSwitch || !got.AllowLAN {
+		t.Fatalf("a damaged file must give the defaults, got %+v", got)
+	}
+}

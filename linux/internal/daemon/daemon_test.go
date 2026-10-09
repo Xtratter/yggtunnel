@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -64,6 +65,7 @@ func (f *fakeCore) MTU() int       { return 1280 }
 func (f *fakeCore) Log() string    { return "log line" }
 
 type fakeNet struct {
+	ksErr     error
 	log       *calls
 	failAfter int // steps that succeed before Up fails (-1: never fail)
 	params    netconf.Params
@@ -87,6 +89,18 @@ func (f *fakeNet) Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.Fi
 		}
 	}
 	return os.Create(filepath.Join(f.dir, "tun"))
+}
+
+func (f *fakeNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
+	if !on {
+		return tx.Undo("killswitch")
+	}
+	return tx.Do(store.Step{Kind: "killswitch"},
+		func() error {
+			f.log.add(fmt.Sprintf("net.ks:on(lan=%v)", p.AllowLAN))
+			return f.ksErr
+		},
+		func() error { f.log.add("undo.ks"); return nil })
 }
 
 func (f *fakeNet) Recover(p store.PrevState) error {
@@ -560,5 +574,223 @@ func TestUpResolvesPeersBeforeNet(t *testing.T) {
 	}
 	if r.c.gotPeers[0] != "tls://192.0.2.50:1234?sni=host.example.net" {
 		t.Fatalf("peers passed to the core: %v", r.c.gotPeers)
+	}
+}
+
+// ---- kill switch -------------------------------------------------------------------------------
+
+func (r *rig) set(t *testing.T, args string) error {
+	t.Helper()
+	_, err := r.d.Handle(context.Background(), ipc.Peer{}, ipc.Request{Cmd: "set", Args: json.RawMessage(args)})
+	return err
+}
+
+func (r *rig) status(t *testing.T) Status {
+	t.Helper()
+	v, err := r.cmd("status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v.(Status)
+}
+
+func TestSetWhileOffOnlyStores(t *testing.T) {
+	r := newRig(t)
+	if err := r.set(t, `{"killSwitch":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if r.log.String() != "" {
+		t.Fatalf("calls %s", r.log)
+	}
+	s := r.status(t)
+	if !s.Settings.KillSwitch || s.KillSwitchActive {
+		t.Fatalf("settings %+v active %v", s.Settings, s.KillSwitchActive)
+	}
+}
+
+func TestStatusReportsDefaultSettings(t *testing.T) {
+	s := newRig(t).status(t)
+	if s.Settings.KillSwitch || !s.Settings.AllowLAN || s.KillSwitchActive {
+		t.Fatalf("%+v active=%v", s.Settings, s.KillSwitchActive)
+	}
+}
+
+func TestUpArmsKillSwitchAfterAttach(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.log.String(); got != "core.start,net.up,core.attach,net.ks:on(lan=true)" {
+		t.Fatalf("calls %s", got)
+	}
+	if !r.status(t).KillSwitchActive {
+		t.Fatal("not reported active")
+	}
+}
+
+func TestUpWithoutKillSwitchDoesNotArm(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.cmd("up")
+	if strings.Contains(r.log.String(), "ks") || r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+}
+
+func TestSetWhileConnectedAppliesAtOnce(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.cmd("up")
+	r.log.l = nil
+	r.set(t, `{"killSwitch":true}`)
+	if r.log.String() != "net.ks:on(lan=true)" || !r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+	r.set(t, `{"allowLan":false}`)
+	if !strings.HasSuffix(r.log.String(), "net.ks:on(lan=false)") || !r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+	r.log.l = nil
+	r.set(t, `{"killSwitch":false}`)
+	if r.log.String() != "undo.ks" || r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+}
+
+func TestKillSwitchFailureRollsUpBack(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.n.ksErr = errors.New("nft refused")
+	_, err := r.cmd("up")
+	if err == nil || !strings.Contains(err.Error(), "nft refused") {
+		t.Fatalf("err=%v", err)
+	}
+	if got := r.log.String(); got != "core.start,net.up,core.attach,net.ks:on(lan=true),undo.c,undo.b,undo.a,core.stop" {
+		t.Fatalf("calls %s", got)
+	}
+	if r.state(t) != "off" || r.status(t).KillSwitchActive {
+		t.Fatalf("state %s", r.state(t))
+	}
+}
+
+func TestDownRemovesKillSwitch(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.cmd("up")
+	r.log.l = nil
+	r.cmd("down")
+	if got := r.log.String(); got != "undo.ks,undo.c,undo.b,undo.a,core.stop" {
+		t.Fatalf("calls %s", got)
+	}
+	s := r.status(t)
+	if s.KillSwitchActive || !s.Settings.KillSwitch {
+		t.Fatalf("active=%v settings=%+v (the setting must stay, the table must go)", s.KillSwitchActive, s.Settings)
+	}
+}
+
+func TestPanicRemovesKillSwitch(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.cmd("up")
+	if _, err := r.cmd("panic"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.log.String(), "undo.ks") || r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+}
+
+func TestShutdownRemovesKillSwitch(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.cmd("up")
+	r.d.Auth = &denyAll{}
+	if err := r.d.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.log.String(), "undo.ks") || r.status(t).KillSwitchActive {
+		t.Fatalf("calls %s", r.log)
+	}
+}
+
+func TestSetDuringStartingAppliesAfterAttach(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.c.gate = make(chan struct{})
+	upDone := make(chan error, 1)
+	go func() { _, err := r.cmd("up"); upDone <- err }()
+	for i := 0; r.state(t) != "starting"; i++ {
+		if i > 1000 {
+			t.Fatal("never reached starting")
+		}
+	}
+	setDone := make(chan error, 1)
+	go func() { setDone <- r.set(t, `{"killSwitch":true}`) }()
+	close(r.c.gate)
+	if err := <-upDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-setDone; err != nil {
+		t.Fatal(err)
+	}
+	if got := r.log.String(); got != "core.start,net.up,core.attach,net.ks:on(lan=true)" {
+		t.Fatalf("calls %s (the kill switch must be armed exactly once, after the tunnel is attached)", got)
+	}
+	if !r.status(t).KillSwitchActive {
+		t.Fatal("not active")
+	}
+}
+
+func TestSetRefusedWhenAuthorizerDenies(t *testing.T) {
+	r := newRig(t)
+	r.d.Auth = &denyAll{}
+	_, err := r.d.Handle(context.Background(), ipc.Peer{PID: 1}, ipc.Request{Cmd: "set", Args: json.RawMessage(`{"killSwitch":true}`)})
+	if err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("err=%v", err)
+	}
+	r.d.Auth = nil
+	if r.status(t).Settings.KillSwitch {
+		t.Fatal("a refused command changed the setting")
+	}
+}
+
+func TestSetPartialArgsKeepOtherField(t *testing.T) {
+	r := newRig(t)
+	r.set(t, `{"allowLan":false}`)
+	r.set(t, `{"killSwitch":true}`)
+	s := r.status(t)
+	if !s.Settings.KillSwitch || s.Settings.AllowLAN {
+		t.Fatalf("%+v", s.Settings)
+	}
+}
+
+func TestSetBadArgsIsError(t *testing.T) {
+	r := newRig(t)
+	for _, args := range []string{``, `{}`, `[1]`, `"x"`, `{"killSwitch":"yes"}`, `{"allowLan":1}`} {
+		if err := r.set(t, args); err == nil {
+			t.Errorf("args %q accepted", args)
+		}
+	}
+	if s := r.status(t); s.Settings.KillSwitch || !s.Settings.AllowLAN {
+		t.Fatalf("a bad command changed the settings: %+v", s.Settings)
+	}
+}
+
+func TestSetFailureWhileConnectedKeepsOldSetting(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.cmd("up")
+	r.n.ksErr = errors.New("nft refused")
+	if err := r.set(t, `{"killSwitch":true}`); err == nil {
+		t.Fatal("expected error")
+	}
+	if r.status(t).Settings.KillSwitch {
+		t.Fatal("the setting was stored although it could not be applied")
 	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/Xtratter/yggtunnel/linux/internal/ipc"
 	"github.com/Xtratter/yggtunnel/linux/internal/profile"
+	"github.com/Xtratter/yggtunnel/linux/internal/store"
 )
 
 // State is the connection state. Names match the Android app's phases.
@@ -24,6 +25,9 @@ type Status struct {
 	Error   string          `json:"error,omitempty"` // why the last attempt failed
 	Node    json.RawMessage `json:"node,omitempty"`  // core status, while running
 	Profile profile.Profile `json:"profile"`         // active profile, private key masked
+
+	Settings         store.Settings `json:"settings"`
+	KillSwitchActive bool           `json:"killSwitchActive"` // armed right now (only while connected)
 }
 
 func (d *Daemon) setState(s State, errText string) {

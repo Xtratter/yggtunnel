@@ -59,6 +59,14 @@ func (RealNet) Up(tx *netconf.Tx, p netconf.Params, servers []netip.Addr) (*os.F
 	return f, nil
 }
 
+// KillSwitch arms or removes the kill switch table as a step of tx.
+func (RealNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
+	if !on {
+		return tx.Undo("killswitch")
+	}
+	return netconf.AddKillSwitch(tx, p)
+}
+
 // Recover undoes recorded steps: DNS first (it was applied last), then the network steps.
 func (RealNet) Recover(prev store.PrevState) error {
 	var rest store.PrevState
@@ -104,6 +112,15 @@ func (DryNet) Up(tx *netconf.Tx, p netconf.Params, servers []netip.Addr) (*os.Fi
 	}
 	_ = w // kept open for the process lifetime, so reads on r block instead of failing
 	return r, nil
+}
+
+func (DryNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
+	if !on {
+		return tx.Undo("dry-killswitch")
+	}
+	return tx.Do(store.Step{Kind: "dry-killswitch"},
+		func() error { log.Printf("dry-run: would arm the kill switch (lan=%v)", p.AllowLAN); return nil },
+		func() error { log.Printf("dry-run: would remove the kill switch"); return nil })
 }
 
 func (DryNet) Recover(prev store.PrevState) error {

@@ -135,3 +135,33 @@ func (s *Store) NodeConfig(gen func() (string, error)) (string, error) {
 	}
 	return cfg, writeAtomic(s.path("node.json"), []byte(sealed))
 }
+
+// Settings are the user's options that outlive a connection.
+type Settings struct {
+	KillSwitch bool `json:"killSwitch"` // drop traffic that bypasses the tunnel while connected
+	AllowLAN   bool `json:"allowLan"`   // with the kill switch: keep local-network traffic
+}
+
+// Settings returns the saved options; defaults (kill switch off, local network allowed) when
+// nothing is saved or the file is damaged.
+func (s *Store) Settings() Settings {
+	def := Settings{AllowLAN: true}
+	b, err := os.ReadFile(s.path("settings.json"))
+	if err != nil {
+		return def
+	}
+	v := def
+	if json.Unmarshal(b, &v) != nil {
+		return def
+	}
+	return v
+}
+
+// SaveSettings stores the options.
+func (s *Store) SaveSettings(v Settings) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(s.path("settings.json"), b)
+}

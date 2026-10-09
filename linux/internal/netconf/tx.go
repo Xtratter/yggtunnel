@@ -105,7 +105,7 @@ func undoStep(s store.Step) error {
 		return delMarkTable(s.Args["table"])
 	case "killswitch":
 		return delMarkTable(s.Args["table"])
-	case "dry": // recorded by `--dry-run`; nothing was changed
+	case "dry", "dry-killswitch": // recorded by `--dry-run`; nothing was changed
 		return nil
 	}
 	return fmt.Errorf("unknown step kind %q", s.Kind)

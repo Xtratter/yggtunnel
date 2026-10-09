@@ -29,6 +29,13 @@ func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr) (*os.File, err
 
 func (nsNet) Recover(prev store.PrevState) error { return netconf.RecoverFrom(prev) }
 
+func (nsNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
+	if !on {
+		return tx.Undo("killswitch")
+	}
+	return netconf.AddKillSwitch(tx, p)
+}
+
 func ipOut(t *testing.T, args ...string) string {
 	t.Helper()
 	out, err := exec.Command("ip", args...).CombinedOutput()
@@ -113,5 +120,51 @@ func TestIntegrationLeftoverInterfaceDoesNotBlockUp(t *testing.T) {
 	}
 	if _, err := r.cmd("down"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIntegrationKillSwitchUpDown(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	before := nstest.Snapshot(t)
+	r := nsRig(t)
+	if err := r.set(t, `{"killSwitch":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	if !netconf.KillSwitchActive() {
+		t.Fatal("the table is missing after up")
+	}
+	if _, err := r.cmd("down"); err != nil {
+		t.Fatal(err)
+	}
+	if netconf.KillSwitchActive() {
+		t.Fatal("the table survived down")
+	}
+	if after := nstest.Snapshot(t); after != before {
+		t.Fatalf("down left changes\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+func TestIntegrationKillSwitchCrashRecovery(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	r := nsRig(t)
+	r.set(t, `{"killSwitch":true}`)
+	if _, err := r.cmd("up"); err != nil {
+		t.Fatal(err)
+	}
+	r2 := newRig(t) // a new process on the same state directory
+	r2.d.st = r.st
+	r2.d.n = nsNet{}
+	if err := r2.d.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if netconf.KillSwitchActive() {
+		t.Fatal("the kill switch survived the crash: the user would be locked out")
 	}
 }
