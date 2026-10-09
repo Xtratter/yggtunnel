@@ -63,6 +63,9 @@ void Controller::onConnectedChanged(bool connected)
         m_peers.clear();
         m_handshakeAgo = -1;
         m_ksActive = false; // nobody can vouch for it any more
+        m_splitApplied.clear();
+        m_splitResolved = 0;
+        m_splitResolveError.clear();
         setState("unreachable", m_client->lastConnectError());
     }
     emit changed();
@@ -113,6 +116,18 @@ void Controller::applyStatus(const QJsonObject &s)
     m_killSwitch = settings["killSwitch"].toBool(false);
     m_allowLan = settings["allowLan"].toBool(true);
     m_ksActive = s["killSwitchActive"].toBool(false);
+    const QJsonObject split = settings["split"].toObject();
+    m_splitMode = split["mode"].toString("all");
+    m_splitSubnets.clear();
+    for (const QJsonValue &v : split["subnets"].toArray())
+        m_splitSubnets << v.toString();
+    m_splitDomains.clear();
+    for (const QJsonValue &v : split["domains"].toArray())
+        m_splitDomains << v.toString();
+    const QJsonObject splitStatus = s["splitStatus"].toObject();
+    m_splitApplied = splitStatus["mode"].toString();
+    m_splitResolved = splitStatus["resolved"].toInt();
+    m_splitResolveError = splitStatus["resolveError"].toString();
     m_nodeAddress = node["address"].toString();
     m_handshakeAgo = node["tunnel"].toObject()["handshakeAgo"].toDouble(-1);
     m_peers.clear();
@@ -157,6 +172,13 @@ void Controller::sendSettings(const QJsonObject &args)
         emit changed();
         pollStatus(); // the settings and "active" shown are whatever the daemon reports
     });
+}
+
+void Controller::setSplit(const QString &mode, const QStringList &subnets, const QStringList &domains)
+{
+    sendSettings(QJsonObject{{"split", QJsonObject{{"mode", mode},
+                                                   {"subnets", QJsonArray::fromStringList(subnets)},
+                                                   {"domains", QJsonArray::fromStringList(domains)}}}});
 }
 
 void Controller::setKillSwitch(bool on) { sendSettings(QJsonObject{{"killSwitch", on}}); }

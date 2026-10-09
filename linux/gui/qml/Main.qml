@@ -120,6 +120,21 @@ ApplicationWindow {
                 onAllowLanRequested: function (allow) { ctl.setAllowLan(allow) }
             }
 
+            RoutingCard {
+                Layout.fillWidth: true
+                visible: ctl.daemonReachable
+                mode: ctl.splitMode
+                subnets: ctl.splitSubnets
+                domains: ctl.splitDomains
+                locked: ctl.state === "starting" || ctl.state === "connected" || ctl.state === "reconnecting"
+                busy: ctl.busy
+                applied: ctl.splitApplied
+                resolved: ctl.splitResolved
+                resolveError: ctl.splitResolveError
+                errorText: ctl.lastError
+                onApplyRequested: function (mode, subnets, domains) { ctl.setSplit(mode, subnets, domains) }
+            }
+
             PeersCard {
                 Layout.fillWidth: true
                 visible: ctl.daemonReachable && (ctl.state === "starting" || ctl.state === "connected" || ctl.state === "reconnecting")

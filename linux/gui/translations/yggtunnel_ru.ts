@@ -4,27 +4,27 @@
 <context>
     <name>Controller</name>
     <message>
-        <location filename="../src/controller.cpp" line="172"/>
+        <location filename="../src/controller.cpp" line="194"/>
         <source>The profile is too large (over 64 KiB).</source>
         <translation>Профиль слишком велик (больше 64 КиБ).</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="176"/>
+        <location filename="../src/controller.cpp" line="198"/>
         <source>Paste a yggtunnel://import#… link first.</source>
         <translation>Сначала вставьте ссылку yggtunnel://import#…</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="180"/>
+        <location filename="../src/controller.cpp" line="202"/>
         <source>The daemon is not reachable.</source>
         <translation>Демон недоступен.</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="194"/>
+        <location filename="../src/controller.cpp" line="216"/>
         <source>Cannot read the file: %1</source>
         <translation>Не удаётся прочитать файл: %1</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="200"/>
+        <location filename="../src/controller.cpp" line="222"/>
         <source>The file is too large for a profile (over 64 KiB).</source>
         <translation>Файл слишком велик для профиля (больше 64 КиБ).</translation>
     </message>
@@ -185,22 +185,22 @@
         <translation>Не удалось подключиться</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="136"/>
+        <location filename="../qml/Main.qml" line="151"/>
         <source>Log</source>
         <translation>Журнал</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="142"/>
+        <location filename="../qml/Main.qml" line="157"/>
         <source>Import a profile</source>
         <translation>Импорт профиля</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="162"/>
+        <location filename="../qml/Main.qml" line="177"/>
         <source>Disable everything?</source>
         <translation>Отключить всё?</translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="175"/>
+        <location filename="../qml/Main.qml" line="190"/>
         <source>This disconnects and removes every route, rule and DNS setting that YggTunnel added.</source>
         <translation>Соединение будет разорвано, а все маршруты, правила и настройки DNS, добавленные YggTunnel, удалены.</translation>
     </message>
@@ -264,6 +264,54 @@
         <location filename="../qml/ProtectionCard.qml" line="81"/>
         <source>Allow local network</source>
         <translation>Разрешить локальную сеть</translation>
+    </message>
+</context>
+<context>
+    <name>RoutingCard</name>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="71"/>
+        <source>Routing</source>
+        <translation>Маршрутизация</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="80"/>
+        <source>All traffic through the tunnel</source>
+        <translation>Весь трафик через туннель</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="88"/>
+        <source>All traffic except the list</source>
+        <translation>Весь трафик, кроме списка</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="96"/>
+        <source>Only the list through the tunnel</source>
+        <translation>Через туннель только список</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="106"/>
+        <source>Disconnect to change this.</source>
+        <translation>Чтобы изменить, отключитесь.</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="113"/>
+        <source>Subnets (one per line)</source>
+        <translation>Подсети (по одной в строке)</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="139"/>
+        <source>Domains (one per line; subdomains are not included)</source>
+        <translation>Домены (по одному в строке; поддомены не входят)</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="166"/>
+        <source>%1 addresses resolved</source>
+        <translation>Получено адресов: %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/RoutingCard.qml" line="186"/>
+        <source>Apply</source>
+        <translation>Применить</translation>
     </message>
 </context>
 <context>

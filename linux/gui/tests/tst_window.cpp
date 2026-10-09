@@ -87,6 +87,8 @@ struct App {
     QString importError;
     QJsonObject settings{{"killSwitch", false}, {"allowLan", true}};
     bool ksActive = false;
+    QJsonObject splitStatus;
+    QString setError;
 
     App(const QString &sockPath, bool listen = true) {
         daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *ok, QString *err) -> QJsonValue {
@@ -94,10 +96,16 @@ struct App {
                 QJsonObject o = statusData(state, profile, state == "connected", error, longUri);
                 o["settings"] = settings;
                 o["killSwitchActive"] = ksActive;
+                if (!splitStatus.isEmpty())
+                    o["splitStatus"] = splitStatus;
                 return o;
             }
             if (cmd == "log")
                 return QString("node log line");
+            if (cmd == "set" && !setError.isEmpty()) {
+                *ok = false;
+                *err = setError;
+            }
             if (cmd == "import" && !importError.isEmpty()) {
                 *ok = false;
                 *err = importError;
@@ -255,6 +263,118 @@ private slots:
         QMetaObject::invokeMethod(a.item("killSwitchSwitch"), "clicked"); // ... before it emits clicked
         QTRY_VERIFY(a.daemon.received.contains("set"));
         QCOMPARE(a.daemon.receivedArgs.at(a.daemon.received.indexOf("set")), (QJsonObject{{"killSwitch", true}}));
+    }
+    static QJsonObject splitSettings(const QString &mode, const QStringList &subnets, const QStringList &domains) {
+        QJsonArray s, d;
+        for (const QString &x : subnets) s << x;
+        for (const QString &x : domains) d << x;
+        return QJsonObject{{"killSwitch", false}, {"allowLan", true}, {"split", QJsonObject{{"mode", mode}, {"subnets", s}, {"domains", d}}}};
+    }
+    void routingCardShowsModesAndFields() {
+        App a(sock());
+        a.settings = splitSettings("exclude", {"203.0.113.0/24", "198.51.100.0/24"}, {"example.com"});
+        QTRY_VERIFY(a.visible("routingCard"));
+        QTRY_VERIFY(a.item("modeExclude")->property("checked").toBool());
+        QVERIFY(!a.item("modeAll")->property("checked").toBool());
+        QTRY_COMPARE(a.text("subnetsField"), QString("203.0.113.0/24\n198.51.100.0/24"));
+        QCOMPARE(a.text("domainsField"), QString("example.com"));
+    }
+    void fieldsHiddenInModeAll() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("routingCard"));
+        QVERIFY(a.item("modeAll")->property("checked").toBool());
+        QVERIFY(!a.visible("subnetsField"));
+        QVERIFY(!a.visible("domainsField"));
+    }
+    void modeRadiosDisabledWhileConnected() {
+        App a(sock());
+        a.state = "connected";
+        a.settings = splitSettings("only", {"203.0.113.0/24"}, {});
+        QTRY_COMPARE(a.text("statusLabel"), QString("Connected"));
+        QTRY_VERIFY(!a.item("modeOnly")->property("enabled").toBool());
+        QVERIFY(!a.item("modeAll")->property("enabled").toBool());
+        QVERIFY(a.visible("modeLockedHint"));
+        QVERIFY(a.item("applyButton")->property("enabled").toBool()); // the lists can still be changed
+    }
+    void modeRadiosEnabledWhileDisconnected() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("routingCard"));
+        QVERIFY(a.item("modeOnly")->property("enabled").toBool());
+        QVERIFY(!a.visible("modeLockedHint"));
+    }
+    void applySendsSplit() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("routingCard"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        QMetaObject::invokeMethod(a.item("modeExclude"), "clicked");
+        QTRY_VERIFY(a.visible("subnetsField"));
+        a.item("subnetsField")->setProperty("text", "203.0.113.0/24\n\n  198.51.100.0/24 \n");
+        a.item("domainsField")->setProperty("text", "example.com\r\n");
+        QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
+        QTRY_VERIFY(a.daemon.received.contains("set"));
+        const QJsonObject s = a.daemon.receivedArgs.at(a.daemon.received.indexOf("set"))["split"].toObject();
+        QCOMPARE(s["mode"].toString(), QString("exclude"));
+        QCOMPARE(s["subnets"].toArray(), (QJsonArray{"203.0.113.0/24", "198.51.100.0/24"}));
+        QCOMPARE(s["domains"].toArray(), (QJsonArray{"example.com"}));
+    }
+    void applyShowsDaemonError() {
+        App a(sock());
+        a.setError = "the link is not valid: 0.0.0.0/0 is a default route";
+        QTRY_VERIFY(a.visible("routingCard"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        QMetaObject::invokeMethod(a.item("modeOnly"), "clicked");
+        QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
+        QTRY_VERIFY(a.visible("routingError"));
+        QVERIFY(a.text("routingError").contains("default route"));
+    }
+    void editedTextSurvivesStatusPolls() {
+        App a(sock());
+        a.settings = splitSettings("exclude", {"203.0.113.0/24"}, {});
+        QTRY_COMPARE(a.text("subnetsField"), QString("203.0.113.0/24"));
+        a.item("subnetsField")->setProperty("text", "198.51.100.0/24\n192.0.2.0/24");
+        QTest::qWait(500); // several polls with unchanged server data
+        QCOMPARE(a.text("subnetsField"), QString("198.51.100.0/24\n192.0.2.0/24"));
+        a.settings = splitSettings("exclude", {"10.1.0.0/16"}, {}); // the server's data changed (another client)
+        QTRY_COMPARE(a.text("subnetsField"), QString("10.1.0.0/16"));
+    }
+    void resolverStatusIsShown() {
+        App a(sock());
+        a.state = "connected";
+        a.settings = splitSettings("only", {}, {"example.com"});
+        a.splitStatus = QJsonObject{{"mode", "only"}, {"resolved", 5}, {"resolveError", "example.org: servfail"}};
+        QTRY_VERIFY(a.visible("resolvedLabel"));
+        QVERIFY(a.text("resolvedLabel").contains("5"));
+        QTRY_VERIFY(a.visible("resolveErrorLabel"));
+        QVERIFY(a.text("resolveErrorLabel").contains("servfail"));
+    }
+    void longListDoesNotBreakLayout() {
+        App a(sock());
+        QStringList many;
+        for (int i = 0; i < 300; ++i)
+            many << QString("10.%1.%2.0/24").arg(i / 256).arg(i % 256);
+        a.settings = splitSettings("exclude", many, {"a-very-long-name-" + QString(200, 'x') + ".example.com"});
+        QTRY_COMPARE(a.item("subnetsField")->property("text").toString().count('\n'), 299);
+        QTest::qWait(300);
+        auto *card = qobject_cast<QQuickItem *>(a.item("routingCard"));
+        QVERIFY(card->width() <= a.win->width());
+        auto *apply = qobject_cast<QQuickItem *>(a.item("applyButton"));
+        const QPointF right = apply->mapToItem(card, QPointF(apply->width(), 0));
+        QVERIFY2(right.x() <= card->width() + 0.5, "the Apply button sticks out of the card");
+    }
+    void routingCardHiddenWhenUnreachable() {
+        App a(sock(), false);
+        QTRY_COMPARE(a.text("statusLabel"), QString("Daemon not reachable"));
+        QVERIFY(!a.visible("routingCard"));
+    }
+    void grabsRoutingScreenshot() {
+        App a(sock());
+        a.state = "connected";
+        a.settings = splitSettings("only", {"203.0.113.0/24", "2001:db8:77::/48"}, {"example.com", "example.net"});
+        a.splitStatus = QJsonObject{{"mode", "only"}, {"resolved", 5}, {"resolveError", "example.org: servfail"}};
+        QTRY_VERIFY(a.visible("resolvedLabel"));
+        a.win->setHeight(1500); // the card is below the fold of the normal window size
+        QTest::qWait(300);
+        a.shot("routing.png");
     }
     void protectionCardHiddenWhenUnreachable() {
         App a(sock(), false);

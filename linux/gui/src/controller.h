@@ -28,6 +28,12 @@ class Controller : public QObject {
     Q_PROPERTY(bool killSwitch READ killSwitch NOTIFY changed)             // the setting, as the daemon reports it
     Q_PROPERTY(bool allowLan READ allowLan NOTIFY changed)
     Q_PROPERTY(bool killSwitchActive READ killSwitchActive NOTIFY changed) // armed right now; only the daemon says so
+    Q_PROPERTY(QString splitMode READ splitMode NOTIFY changed)             // the stored setting: all | exclude | only
+    Q_PROPERTY(QStringList splitSubnets READ splitSubnets NOTIFY changed)
+    Q_PROPERTY(QStringList splitDomains READ splitDomains NOTIFY changed)
+    Q_PROPERTY(QString splitApplied READ splitApplied NOTIFY changed)       // the mode of the running connection, empty when off
+    Q_PROPERTY(int splitResolved READ splitResolved NOTIFY changed)         // addresses of the listed names in the firewall
+    Q_PROPERTY(QString splitResolveError READ splitResolveError NOTIFY changed)
     Q_PROPERTY(QString nodeLog READ nodeLog NOTIFY logChanged)
     Q_PROPERTY(QStringList history READ history NOTIFY historyChanged)
 public:
@@ -47,6 +53,12 @@ public:
     bool killSwitch() const { return m_killSwitch; }
     bool allowLan() const { return m_allowLan; }
     bool killSwitchActive() const { return m_ksActive; }
+    QString splitMode() const { return m_splitMode; }
+    QStringList splitSubnets() const { return m_splitSubnets; }
+    QStringList splitDomains() const { return m_splitDomains; }
+    QString splitApplied() const { return m_splitApplied; }
+    int splitResolved() const { return m_splitResolved; }
+    QString splitResolveError() const { return m_splitResolveError; }
     QString nodeLog() const { return m_nodeLog; }
     QStringList history() const { return m_history; }
 
@@ -57,6 +69,8 @@ public:
     Q_INVOKABLE void panic();
     Q_INVOKABLE void setKillSwitch(bool on);
     Q_INVOKABLE void setAllowLan(bool allow);
+    // Sends the whole routing setting in one `set`; the daemon validates it and refuses a mode change while connected.
+    Q_INVOKABLE void setSplit(const QString &mode, const QStringList &subnets, const QStringList &domains);
     Q_INVOKABLE void importLink(const QString &text);
     Q_INVOKABLE void importFile(const QUrl &file); // refuses files over 64 KiB
     Q_INVOKABLE void refreshLog();
@@ -84,6 +98,10 @@ private:
     bool m_killSwitch = false;
     bool m_allowLan = true;
     bool m_ksActive = false;
+    QString m_splitMode = "all";
+    QStringList m_splitSubnets, m_splitDomains;
+    QString m_splitApplied, m_splitResolveError;
+    int m_splitResolved = 0;
     QString m_state = "unreachable";
     QString m_statusError; // the daemon's own last error, replaced by every status
     QString m_actionError; // why this window's last command failed; cleared by the next command or reconnect

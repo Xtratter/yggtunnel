@@ -38,6 +38,7 @@ class TstController : public QObject {
         QString state = "off";
         QJsonObject settings{{"killSwitch", false}, {"allowLan", true}};
         bool ksActive = false;
+        QJsonObject splitStatus;
         Rig(const QString &path) : client(path), ctl(&client) {
             client.setRetryInterval(100);
             ctl.setPollInterval(50);
@@ -46,6 +47,8 @@ class TstController : public QObject {
                     QJsonObject o = statusData(state, state == "connected");
                     o["settings"] = settings;
                     o["killSwitchActive"] = ksActive;
+                    if (!splitStatus.isEmpty())
+                        o["splitStatus"] = splitStatus;
                     return o;
                 }
                 if (cmd == "log")
@@ -255,6 +258,69 @@ private slots:
         QTRY_COMPARE(r.ctl.state(), QString("off"));
         r.ctl.setKillSwitch(true);
         QTRY_COMPARE(r.ctl.lastError(), QString("not authorized by polkit"));
+        QVERIFY(!r.ctl.busy());
+    }
+    void splitFieldsAreReadFromStatus() {
+        Rig r(sock());
+        r.settings = QJsonObject{{"killSwitch", false}, {"allowLan", true},
+                                 {"split", QJsonObject{{"mode", "exclude"}, {"subnets", QJsonArray{"203.0.113.0/24", "198.51.100.0/24"}},
+                                                       {"domains", QJsonArray{"example.com"}}}}};
+        r.splitStatus = QJsonObject{{"mode", "exclude"}, {"resolved", 4}, {"resolveError", "example.org: servfail"}};
+        r.state = "connected";
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.splitMode(), QString("exclude"));
+        QCOMPARE(r.ctl.splitSubnets(), (QStringList{"203.0.113.0/24", "198.51.100.0/24"}));
+        QCOMPARE(r.ctl.splitDomains(), QStringList{"example.com"});
+        QCOMPARE(r.ctl.splitResolved(), 4);
+        QCOMPARE(r.ctl.splitResolveError(), QString("example.org: servfail"));
+        QCOMPARE(r.ctl.splitApplied(), QString("exclude"));
+    }
+    void splitDefaultsBeforeAnyStatus() {
+        Rig r(sock());
+        QCOMPARE(r.ctl.splitMode(), QString("all"));
+        QVERIFY(r.ctl.splitSubnets().isEmpty() && r.ctl.splitDomains().isEmpty());
+        QCOMPARE(r.ctl.splitApplied(), QString());
+    }
+    void setSplitSendsOneSetWithTheWholeObject() {
+        Rig r(sock());
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.setSplit("only", {"203.0.113.0/24"}, {"example.com", "example.net"});
+        QTRY_VERIFY(r.daemon.received.contains("set"));
+        const QJsonObject a = r.daemon.receivedArgs.at(r.daemon.received.indexOf("set"));
+        QCOMPARE(a.keys(), QStringList{"split"});
+        const QJsonObject s = a["split"].toObject();
+        QCOMPARE(s["mode"].toString(), QString("only"));
+        QCOMPARE(s["subnets"].toArray().size(), 1);
+        QCOMPARE(s["domains"].toArray().size(), 2);
+    }
+    void setSplitIgnoredWhileBusy() {
+        Rig r(sock());
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        QTRY_COMPARE(r.daemon.connections(), 1);
+        r.daemon.silent = true;
+        r.ctl.setSplit("only", {}, {});
+        QVERIFY(r.ctl.busy());
+        r.ctl.setSplit("exclude", {}, {});
+        QTest::qWait(100);
+        QCOMPARE(r.daemon.received.count("set"), 1);
+    }
+    void splitErrorIsShown() {
+        Rig r(sock());
+        auto base = r.daemon.handler;
+        r.daemon.handler = [base](const QString &cmd, const QJsonObject &a, bool *ok, QString *e) -> QJsonValue {
+            if (cmd == "set") { *ok = false; *e = "disconnect first to change the routing mode"; return QJsonValue(); }
+            return base(cmd, a, ok, e);
+        };
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        r.ctl.setSplit("only", {}, {});
+        QTRY_COMPARE(r.ctl.lastError(), QString("disconnect first to change the routing mode"));
         QVERIFY(!r.ctl.busy());
     }
     void historyKeepsNewestFirstAndCaps200() {
