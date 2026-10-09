@@ -246,6 +246,27 @@ private slots:
         QVERIFY(!r.ctl.killSwitchActive());
         QVERIFY(!r.ctl.killSwitch()); // and the stored setting is whatever the daemon reports
     }
+    void settingsFinishedReportsTheResult() {
+        Rig r(sock());
+        bool fail = false;
+        auto base = r.daemon.handler;
+        r.daemon.handler = [base, &fail](const QString &cmd, const QJsonObject &a, bool *ok, QString *e) -> QJsonValue {
+            if (cmd == "set" && fail) { *ok = false; *e = "nope"; return QJsonValue(); }
+            return base(cmd, a, ok, e);
+        };
+        QVERIFY(r.daemon.listen(sock()));
+        r.client.start();
+        QTRY_COMPARE(r.ctl.state(), QString("off"));
+        QSignalSpy spy(&r.ctl, &Controller::settingsFinished);
+        r.ctl.setSplit("exclude", {}, {});
+        QTRY_COMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toBool(), true);
+        fail = true;
+        r.ctl.setSplit("only", {}, {});
+        QTRY_COMPARE(spy.count(), 2);
+        QCOMPARE(spy.at(1).at(0).toBool(), false);
+        QCOMPARE(spy.at(1).at(1).toString(), QString("nope"));
+    }
     void setErrorIsShown() {
         Rig r(sock());
         auto base = r.daemon.handler;

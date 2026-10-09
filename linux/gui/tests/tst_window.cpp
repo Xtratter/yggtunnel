@@ -91,7 +91,7 @@ struct App {
     QString setError;
 
     App(const QString &sockPath, bool listen = true) {
-        daemon.handler = [this](const QString &cmd, const QJsonObject &, bool *ok, QString *err) -> QJsonValue {
+        daemon.handler = [this](const QString &cmd, const QJsonObject &args, bool *ok, QString *err) -> QJsonValue {
             if (cmd == "status") {
                 QJsonObject o = statusData(state, profile, state == "connected", error, longUri);
                 o["settings"] = settings;
@@ -105,6 +105,8 @@ struct App {
             if (cmd == "set" && !setError.isEmpty()) {
                 *ok = false;
                 *err = setError;
+            } else if (cmd == "set" && args.contains("split")) {
+                settings["split"] = args["split"]; // what the daemon would store (already canonical here)
             }
             if (cmd == "import" && !importError.isEmpty()) {
                 *ok = false;
@@ -326,6 +328,47 @@ private slots:
         QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
         QTRY_VERIFY(a.visible("routingError"));
         QVERIFY(a.text("routingError").contains("default route"));
+    }
+    void failedApplyKeepsTheUsersEdits() {
+        App a(sock());
+        a.settings = splitSettings("exclude", {"203.0.113.0/24"}, {});
+        a.setError = "\"bogus\" is not a valid address or subnet";
+        QTRY_COMPARE(a.text("subnetsField"), QString("203.0.113.0/24"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        a.item("subnetsField")->setProperty("text", "198.51.100.0/24\nbogus");
+        QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
+        QTRY_VERIFY(a.visible("routingError"));
+        QVERIFY(a.text("routingError").contains("bogus"));
+        QTest::qWait(500); // polls keep coming
+        QCOMPARE(a.text("subnetsField"), QString("198.51.100.0/24\nbogus")); // nothing is lost: the user fixes the typo
+    }
+    void successfulApplyShowsTheStoredForm() {
+        App a(sock());
+        a.settings = splitSettings("exclude", {"203.0.113.0/24"}, {});
+        QTRY_COMPARE(a.text("subnetsField"), QString("203.0.113.0/24"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        a.item("subnetsField")->setProperty("text", "198.51.100.0/24\n\n192.0.2.0/24\n");
+        QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
+        QTRY_COMPARE(a.text("subnetsField"), QString("198.51.100.0/24\n192.0.2.0/24"));
+        QVERIFY(!a.visible("routingError"));
+    }
+    void unrelatedErrorsDoNotAppearUnderApply() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("routingCard"));
+        QTRY_COMPARE(a.daemon.connections(), 1);
+        QMetaObject::invokeMethod(a.item("modeExclude"), "clicked");
+        QMetaObject::invokeMethod(a.item("applyButton"), "clicked");
+        QTest::qWait(300);
+        a.error = "step failed"; // a later, unrelated connection error
+        QTRY_VERIFY(a.visible("errorLabel"));
+        QVERIFY(!a.visible("routingError"));
+    }
+    void protectionNoteFollowsTheRoutingMode() {
+        App a(sock());
+        QTRY_VERIFY(a.visible("protectionCard"));
+        QVERIFY(a.text("protectionNote").contains("not going through the tunnel"));
+        a.settings = splitSettings("only", {"203.0.113.0/24"}, {});
+        QTRY_VERIFY(a.text("protectionNote").contains("meant for the tunnel"));
     }
     void editedTextSurvivesStatusPolls() {
         App a(sock());

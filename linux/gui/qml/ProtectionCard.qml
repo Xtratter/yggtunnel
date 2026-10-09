@@ -13,6 +13,7 @@ Pane {
     property bool active: false
     property bool connected: false
     property bool busy: false
+    property string splitMode: "all"   // in "only" the kill switch guards just what is meant for the tunnel
 
     signal killSwitchRequested(bool on)
     signal allowLanRequested(bool allow)
@@ -66,11 +67,14 @@ Pane {
             }
         }
         Label {
+            objectName: "protectionNote"
             Layout.fillWidth: true
             Layout.leftMargin: 8
             wrapMode: Text.WordWrap
             opacity: 0.7
-            text: qsTr("Traffic that is not going through the tunnel is dropped while you are connected.")
+            text: card.splitMode === "only"
+                  ? qsTr("Traffic meant for the tunnel is dropped if it would leave any other way.")
+                  : qsTr("Traffic that is not going through the tunnel is dropped while you are connected.")
         }
 
         Switch {

@@ -170,6 +170,7 @@ void Controller::sendSettings(const QJsonObject &args)
         m_busy = false;
         m_actionError = ok ? QString() : error;
         emit changed();
+        emit settingsFinished(ok, ok ? QString() : error);
         pollStatus(); // the settings and "active" shown are whatever the daemon reports
     });
 }

@@ -97,7 +97,8 @@ runs `yggtunneld --recover-only`) and when `up` fails: a crash must never lock t
 ### Split routing
 
 - **Subnets/domains:** domains resolved by the daemon, results kept in an nftables set refreshed by
-  TTL. Modes: «only these go through the tunnel» / «everything except these».
+  TTL — in practice: looked up again every 60 seconds and whenever the list changes, each address kept for 5
+  minutes, because the system resolver gives no TTL. Modes: «only these go through the tunnel» / «everything except these».
 - **Apps:** the GUI starts the chosen app with `systemd-run --user --scope` in its own cgroup v2;
   nftables marks traffic by cgroup and routes it through the tunnel or around it. A running app must
   be restarted (shown in the GUI). Flatpak/Snap are not guaranteed in the first release.

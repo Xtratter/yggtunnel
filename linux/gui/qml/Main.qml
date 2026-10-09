@@ -115,6 +115,7 @@ ApplicationWindow {
                 allowLan: ctl.allowLan
                 active: ctl.killSwitchActive
                 connected: ctl.state === "connected"
+                splitMode: ctl.splitMode
                 busy: ctl.busy
                 onKillSwitchRequested: function (on) { ctl.setKillSwitch(on) }
                 onAllowLanRequested: function (allow) { ctl.setAllowLan(allow) }
@@ -131,7 +132,6 @@ ApplicationWindow {
                 applied: ctl.splitApplied
                 resolved: ctl.splitResolved
                 resolveError: ctl.splitResolveError
-                errorText: ctl.lastError
                 onApplyRequested: function (mode, subnets, domains) { ctl.setSplit(mode, subnets, domains) }
             }
 

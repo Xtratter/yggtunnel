@@ -17,13 +17,13 @@ Pane {
     property string applied: ""         // the mode of the running connection
     property int resolved: 0
     property string resolveError: ""
-    property string errorText: ""
 
     signal applyRequested(string mode, var subnets, var domains)
 
     property string selectedMode: "all"
     property bool dirty: false          // the user edited something that was not applied yet
-    property bool showError: false
+    property bool pending: false        // an Apply is waiting for the daemon's answer
+    property string applyError: ""      // the daemon's answer to the last Apply, nothing else
     property string syncKey: ""
 
     // Fields follow the daemon only when ITS data changed, never on every poll, so typing is not lost.
@@ -37,6 +37,20 @@ Pane {
         selectedMode = card.mode
         subnetsField.text = card.subnets.join("\n")
         domainsField.text = card.domains.join("\n")
+    }
+    // The edits are given up only when the daemon accepted them; after a refusal they stay to be fixed.
+    Connections {
+        target: ctl
+        function onSettingsFinished(ok, error) {
+            if (!card.pending)
+                return
+            card.pending = false
+            card.applyError = ok ? "" : error
+            if (ok) {
+                card.dirty = false
+                card.syncKey = "" // the next status brings the stored (canonical) form into the fields
+            }
+        }
     }
     onModeChanged: sync()
     onSubnetsChanged: sync()
@@ -185,17 +199,16 @@ Pane {
             primary: true
             text: qsTr("Apply")
             onClicked: {
-                card.showError = true
-                card.dirty = false
-                card.syncKey = "" // after the daemon answers, show what it stored
+                card.pending = true
+                card.applyError = ""
                 card.applyRequested(card.selectedMode, card.lines(subnetsField.text), card.lines(domainsField.text))
             }
         }
         Label {
             objectName: "routingError"
             Layout.fillWidth: true
-            visible: card.showError && card.errorText !== ""
-            text: card.errorText
+            visible: card.applyError !== ""
+            text: card.applyError
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             maximumLineCount: 4
             elide: Text.ElideRight

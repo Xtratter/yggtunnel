@@ -6,6 +6,8 @@
 
 - Split routing by subnet and domain: modes all / exclude / only, lists applied live, domains resolved by the daemon
   (every 60 s); `yggtunnelctl split …`, the «Routing» card in the window; the kill switch and the tunnel's DNS follow the mode
+- A connection keeps the path it started on when the lists change; a packet with the tunnel's source address is never sent out of the physical link
+- The window keeps your edits when the daemon refuses an Apply; Disconnect no longer waits for name lookups
 
 ## 0.3.0 — unreleased
 

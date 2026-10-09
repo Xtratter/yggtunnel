@@ -4,27 +4,27 @@
 <context>
     <name>Controller</name>
     <message>
-        <location filename="../src/controller.cpp" line="194"/>
+        <location filename="../src/controller.cpp" line="195"/>
         <source>The profile is too large (over 64 KiB).</source>
         <translation>Профиль слишком велик (больше 64 КиБ).</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="198"/>
+        <location filename="../src/controller.cpp" line="199"/>
         <source>Paste a yggtunnel://import#… link first.</source>
         <translation>Сначала вставьте ссылку yggtunnel://import#…</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="202"/>
+        <location filename="../src/controller.cpp" line="203"/>
         <source>The daemon is not reachable.</source>
         <translation>Демон недоступен.</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="216"/>
+        <location filename="../src/controller.cpp" line="217"/>
         <source>Cannot read the file: %1</source>
         <translation>Не удаётся прочитать файл: %1</translation>
     </message>
     <message>
-        <location filename="../src/controller.cpp" line="222"/>
+        <location filename="../src/controller.cpp" line="223"/>
         <source>The file is too large for a profile (over 64 KiB).</source>
         <translation>Файл слишком велик для профиля (больше 64 КиБ).</translation>
     </message>
@@ -226,42 +226,47 @@
 <context>
     <name>ProtectionCard</name>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="37"/>
+        <location filename="../qml/ProtectionCard.qml" line="38"/>
         <source>Protection</source>
         <translation>Защита</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="43"/>
+        <location filename="../qml/ProtectionCard.qml" line="44"/>
         <source>Active</source>
         <translation>Работает</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="44"/>
+        <location filename="../qml/ProtectionCard.qml" line="45"/>
         <source>Off</source>
         <translation>Выключено</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="45"/>
+        <location filename="../qml/ProtectionCard.qml" line="46"/>
         <source>Not active</source>
         <translation>Не работает</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="46"/>
+        <location filename="../qml/ProtectionCard.qml" line="47"/>
         <source>Armed: it starts with the next connection</source>
         <translation>Готов: включится при следующем подключении</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="60"/>
+        <location filename="../qml/ProtectionCard.qml" line="61"/>
         <source>Kill switch</source>
         <translation>Kill switch</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="73"/>
+        <location filename="../qml/ProtectionCard.qml" line="76"/>
+        <source>Traffic meant for the tunnel is dropped if it would leave any other way.</source>
+        <translation>Трафик, предназначенный для туннеля, отбрасывается, если пошёл бы иным путём.</translation>
+    </message>
+    <message>
+        <location filename="../qml/ProtectionCard.qml" line="77"/>
         <source>Traffic that is not going through the tunnel is dropped while you are connected.</source>
         <translation>Трафик, идущий мимо туннеля, отбрасывается, пока вы подключены.</translation>
     </message>
     <message>
-        <location filename="../qml/ProtectionCard.qml" line="81"/>
+        <location filename="../qml/ProtectionCard.qml" line="85"/>
         <source>Allow local network</source>
         <translation>Разрешить локальную сеть</translation>
     </message>
@@ -269,47 +274,47 @@
 <context>
     <name>RoutingCard</name>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="71"/>
+        <location filename="../qml/RoutingCard.qml" line="85"/>
         <source>Routing</source>
         <translation>Маршрутизация</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="80"/>
+        <location filename="../qml/RoutingCard.qml" line="94"/>
         <source>All traffic through the tunnel</source>
         <translation>Весь трафик через туннель</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="88"/>
+        <location filename="../qml/RoutingCard.qml" line="102"/>
         <source>All traffic except the list</source>
         <translation>Весь трафик, кроме списка</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="96"/>
+        <location filename="../qml/RoutingCard.qml" line="110"/>
         <source>Only the list through the tunnel</source>
         <translation>Через туннель только список</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="106"/>
+        <location filename="../qml/RoutingCard.qml" line="120"/>
         <source>Disconnect to change this.</source>
         <translation>Чтобы изменить, отключитесь.</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="113"/>
+        <location filename="../qml/RoutingCard.qml" line="127"/>
         <source>Subnets (one per line)</source>
         <translation>Подсети (по одной в строке)</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="139"/>
+        <location filename="../qml/RoutingCard.qml" line="153"/>
         <source>Domains (one per line; subdomains are not included)</source>
         <translation>Домены (по одному в строке; поддомены не входят)</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="166"/>
+        <location filename="../qml/RoutingCard.qml" line="180"/>
         <source>%1 addresses resolved</source>
         <translation>Получено адресов: %1</translation>
     </message>
     <message>
-        <location filename="../qml/RoutingCard.qml" line="186"/>
+        <location filename="../qml/RoutingCard.qml" line="200"/>
         <source>Apply</source>
         <translation>Применить</translation>
     </message>

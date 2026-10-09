@@ -105,9 +105,14 @@ address is a `/32`, IPv6 works) and domain names. The same card is in the window
   Their addresses stay in the firewall for 5 minutes. A name that fails to resolve keeps its last addresses and
   the problem is shown in `status`. **Subdomains are not included** — list each name; names that are served from
   many addresses (CDNs) may be answered differently between lookups.
-- In **only** mode traffic to the list is marked and routed into the tunnel, the rest goes directly; the tunnel's
-  DNS servers are always reached through the tunnel, and only the listed names are asked there. The daemon's own
-  traffic never enters the tunnel, even to a listed address.
+- In **only** mode traffic to the list is marked and routed into the tunnel, the rest goes directly. While names
+  are listed, the tunnel's DNS servers (`1.1.1.1`, `8.8.8.8`) are reached through the tunnel **by every program** —
+  if your normal DNS is one of them, it goes through the tunnel too — and the listed names (with their subdomains)
+  are asked there. The daemon's own traffic never enters the tunnel, even to a listed address.
+- A connection keeps the path it started on: a list change (or a name that moved to another address) applies to
+  **new** connections, and running ones are not switched. As a last line of defence, a packet that would leave the
+  physical link with the tunnel's own source address is dropped.
+- IPv6 destinations are tunnelled only when the profile has an IPv6 address.
 - With the **kill switch** in **only** mode it protects exactly what should be tunnelled: if the tunnel route
   disappears, traffic to the list is dropped; everything else keeps going where it was meant to.
 - Entries are checked: at most 500 subnets and 500 domains; default routes (`0.0.0.0/0`, `::/0`), anything that

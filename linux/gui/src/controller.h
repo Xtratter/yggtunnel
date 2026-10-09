@@ -80,6 +80,8 @@ signals:
     void logChanged();
     void historyChanged();
     void importFinished(bool ok, const QString &message);
+    // a `set` (kill switch, local network, routing) was answered; `error` is the daemon's text when !ok
+    void settingsFinished(bool ok, const QString &error);
 
 private:
     void onConnectedChanged(bool connected);
