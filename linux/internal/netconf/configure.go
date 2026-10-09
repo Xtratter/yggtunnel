@@ -44,9 +44,10 @@ func Configure(tx *Tx, p Params) error {
 		if err := addDefaultRoute(tx, l, p.Table, fam); err != nil {
 			return err
 		}
-		if err := addRules(tx, p.Table, p.Mark, fam); err != nil {
+		if err := addRules(tx, p.Table, p.Mark, fam, p.Split.Mode); err != nil {
 			return err
 		}
 	}
-	return addMark(tx, p.CgroupPath, p.Mark, p.IfName)
+	p.Split.Mark = p.Mark
+	return addMark(tx, p)
 }

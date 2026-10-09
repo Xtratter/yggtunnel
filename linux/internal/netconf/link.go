@@ -23,6 +23,7 @@ type Params struct {
 	Table      int    // routing table holding the default routes through the tunnel
 	Mark       uint32 // traffic of CgroupPath carries this mark and bypasses the tunnel
 	CgroupPath string // absolute cgroup v2 directory of the daemon
+	Split      SplitParams
 }
 
 // gone reports "nothing to undo" errors, so undo can run twice.

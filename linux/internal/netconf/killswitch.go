@@ -105,6 +105,11 @@ func udpPorts(sport, dport uint16) []expr.Any {
 
 // destPrefix accepts packets whose destination address is inside pfx (IPv4 or IPv6).
 func destPrefix(pfx netip.Prefix) []expr.Any {
+	return append(destMatch(pfx), &expr.Verdict{Kind: expr.VerdictAccept})
+}
+
+// destMatch is the expressions that fall through only for packets whose destination is inside pfx.
+func destMatch(pfx netip.Prefix) []expr.Any {
 	proto, offset, size := byte(unix.NFPROTO_IPV4), uint32(16), uint32(4)
 	if pfx.Addr().Is6() {
 		proto, offset, size = unix.NFPROTO_IPV6, 24, 16
@@ -118,7 +123,6 @@ func destPrefix(pfx netip.Prefix) []expr.Any {
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: size},
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: size, Mask: mask, Xor: make([]byte, size)},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: pfx.Masked().Addr().AsSlice()},
-		&expr.Verdict{Kind: expr.VerdictAccept},
 	}
 }
 

@@ -49,10 +49,18 @@ func delRoute(a map[string]string) error {
 
 // addRules adds, for one family: «main, ignoring default routes» then «everything not marked
 // goes to the tunnel table». Marked traffic (the daemon's own) falls through to the main table.
-func addRules(tx *Tx, table int, mark uint32, family int) error {
+//
+// In split mode "only" the default is the other way round: there is no suppress rule and no catch-all,
+// and one rule sends packets carrying ForceMark to the tunnel table.
+func addRules(tx *Tx, table int, mark uint32, family int, mode string) error {
 	suppress := map[string]string{"family": itoa(family), "prio": itoa(prioSuppress), "table": itoa(unix.RT_TABLE_MAIN), "suppress": "0"}
 	tunnel := map[string]string{"family": itoa(family), "prio": itoa(prioTunnel), "table": itoa(table), "mark": itoa(int(mark)), "invert": "1"}
-	for _, a := range []map[string]string{suppress, tunnel} {
+	rules := []map[string]string{suppress, tunnel}
+	if mode == "only" {
+		force := map[string]string{"family": itoa(family), "prio": itoa(prioTunnel), "table": itoa(table), "mark": itoa(ForceMark), "invert": "0"}
+		rules = []map[string]string{force}
+	}
+	for _, a := range rules {
 		a := a
 		if err := tx.Do(store.Step{Kind: "rule", Args: a},
 			func() error { return ignoreExists(netlink.RuleAdd(ruleOf(a))) },
