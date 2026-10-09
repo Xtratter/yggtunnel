@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/Xtratter/yggtunnel/go v0.0.0
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/google/nftables v0.3.0
 	github.com/vishvananda/netlink v1.3.1
 	golang.org/x/crypto v0.53.0
