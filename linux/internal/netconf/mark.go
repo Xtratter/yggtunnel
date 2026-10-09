@@ -35,8 +35,11 @@ func cgroupID(path string) (id uint64, level uint32, err error) {
 	return st.Ino, level, nil
 }
 
-// addMark marks every locally generated packet of the cgroup, so that `ip rule` sends it around the tunnel.
-func addMark(tx *Tx, cgroupPath string, mark uint32) error {
+// addMark marks every locally generated packet of the cgroup, so that `ip rule` sends it around the
+// tunnel. The kernel chooses a socket's source address at connect(), before the packet is marked, so
+// a connection opened while the tunnel is up carries the tunnel's address; the nat chain rewrites it
+// to the outgoing link's address (wg-quick avoids the problem by setting SO_MARK on its own socket).
+func addMark(tx *Tx, cgroupPath string, mark uint32, ifName string) error {
 	id, level, err := cgroupID(cgroupPath)
 	if err != nil {
 		return fmt.Errorf("cgroup %s: %w", cgroupPath, err)
@@ -54,9 +57,25 @@ func addMark(tx *Tx, cgroupPath string, mark uint32) error {
 				&expr.Immediate{Register: 1, Data: binaryutil.NativeEndian.PutUint32(mark)},
 				&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 1},
 			}})
+			nat := c.AddChain(&nftables.Chain{Name: "nat", Table: t, Type: nftables.ChainTypeNAT,
+				Hooknum: nftables.ChainHookPostrouting, Priority: nftables.ChainPriorityNATSource})
+			c.AddRule(&nftables.Rule{Table: t, Chain: nat, Exprs: []expr.Any{
+				&expr.Meta{Key: expr.MetaKeyMARK, Register: 1},
+				&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: binaryutil.NativeEndian.PutUint32(mark)},
+				&expr.Meta{Key: expr.MetaKeyOIFNAME, Register: 1},
+				&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: ifnameData(ifName)},
+				&expr.Masq{},
+			}})
 			return c.Flush()
 		},
 		func() error { return delMarkTable(markTable) })
+}
+
+// ifnameData is an interface name as nftables compares it: NUL-padded to IFNAMSIZ.
+func ifnameData(name string) []byte {
+	b := make([]byte, 16)
+	copy(b, name)
+	return b
 }
 
 func delMarkTable(name string) error {

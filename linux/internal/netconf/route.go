@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"errors"
 	"net"
 	"strconv"
 
@@ -26,7 +27,8 @@ func addDefaultRoute(tx *Tx, l netlink.Link, table, family int) error {
 	args := map[string]string{"if": l.Attrs().Name, "table": itoa(table), "family": itoa(family)}
 	return tx.Do(store.Step{Kind: "route", Args: args},
 		func() error {
-			return netlink.RouteAdd(&netlink.Route{LinkIndex: l.Attrs().Index, Dst: defaultDst(family), Table: table, Family: family})
+			err := netlink.RouteAdd(&netlink.Route{LinkIndex: l.Attrs().Index, Dst: defaultDst(family), Table: table, Family: family})
+			return ignoreExists(err)
 		},
 		func() error { return delRoute(args) })
 }
@@ -53,12 +55,21 @@ func addRules(tx *Tx, table int, mark uint32, family int) error {
 	for _, a := range []map[string]string{suppress, tunnel} {
 		a := a
 		if err := tx.Do(store.Step{Kind: "rule", Args: a},
-			func() error { return netlink.RuleAdd(ruleOf(a)) },
+			func() error { return ignoreExists(netlink.RuleAdd(ruleOf(a))) },
 			func() error { return delRule(a) }); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ignoreExists treats "already there" as done: a leftover of an earlier run is exactly what the step
+// wants, and its undo removes it.
+func ignoreExists(err error) error {
+	if errors.Is(err, unix.EEXIST) {
+		return nil
+	}
+	return err
 }
 
 func ruleOf(a map[string]string) *netlink.Rule {

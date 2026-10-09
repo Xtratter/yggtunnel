@@ -48,5 +48,5 @@ func Configure(tx *Tx, p Params) error {
 			return err
 		}
 	}
-	return addMark(tx, p.CgroupPath, p.Mark)
+	return addMark(tx, p.CgroupPath, p.Mark, p.IfName)
 }

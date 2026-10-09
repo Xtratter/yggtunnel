@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"sync"
@@ -57,6 +58,8 @@ type Daemon struct {
 	Auth auth.Authorizer
 	// GenConfig creates a fresh node config on first use.
 	GenConfig func() (string, error)
+	// Lookup resolves peer host names before the tunnel takes over DNS.
+	Lookup func(host string) ([]string, error)
 
 	st   *store.Store
 	c    Core
@@ -72,7 +75,7 @@ type Daemon struct {
 
 // New creates a daemon in the Off state.
 func New(st *store.Store, c Core, n Net, emit func(ipc.Event)) *Daemon {
-	return &Daemon{st: st, c: c, n: n, emit: emit, state: Off, GenConfig: core.GenerateConfig}
+	return &Daemon{st: st, c: c, n: n, emit: emit, state: Off, GenConfig: core.GenerateConfig, Lookup: net.LookupHost}
 }
 
 // Handle implements ipc.Handler.
@@ -179,7 +182,8 @@ func (d *Daemon) up() error {
 			peers = append(peers, p)
 		}
 	}
-	yggStr, err := d.c.Start(cfgJSON, peers)
+	// Names are resolved now: once the tunnel owns DNS, a peer that is down could not be looked up.
+	yggStr, err := d.c.Start(cfgJSON, resolvePeers(peers, d.Lookup))
 	if err != nil {
 		return fail(err)
 	}
@@ -226,6 +230,9 @@ func (d *Daemon) teardown() error {
 	return err
 }
 
+// Shutdown undoes the connection when the daemon itself stops; it needs no authorisation.
+func (d *Daemon) Shutdown() error { return d.down() }
+
 func (d *Daemon) down() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
@@ -267,9 +274,8 @@ func (d *Daemon) recoverPrev() error {
 	if !ok {
 		return nil
 	}
-	rerr := d.n.Recover(prev)
-	if err := d.st.ClearPrev(); err != nil {
-		rerr = errors.Join(rerr, err)
+	if err := d.n.Recover(prev); err != nil {
+		return err // keep the record: every undo is idempotent, so panic or the next start can retry
 	}
-	return rerr
+	return d.st.ClearPrev()
 }

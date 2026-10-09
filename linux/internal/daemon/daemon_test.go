@@ -38,11 +38,13 @@ type fakeCore struct {
 	gotCfg   core.TunnelConfig
 	gotFd    int
 	gotCfgJS string
+	gotPeers []string
 }
 
 func (f *fakeCore) Start(cfg string, peers []string) (string, error) {
 	f.log.add("core.start")
 	f.gotCfgJS = cfg
+	f.gotPeers = peers
 	if f.gate != nil {
 		<-f.gate
 	}
@@ -450,5 +452,113 @@ func TestReadOnlyCommandsSkipAuthorizer(t *testing.T) {
 	}
 	if len(a.asked) != 0 {
 		t.Fatalf("asked %v", a.asked)
+	}
+}
+
+// I1: stopping the daemon must undo the connection even though the caller (the daemon itself)
+// has no polkit identity.
+func TestShutdownTearsDownWithoutAuthorization(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.cmd("up")
+	r.d.Auth = &denyAll{}
+	if err := r.d.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(r.log.String(), "undo.c,undo.b,undo.a,core.stop") {
+		t.Fatalf("calls %s", r.log)
+	}
+	if r.d.cur() != Off {
+		t.Fatalf("state %s", r.d.cur())
+	}
+}
+
+func TestShutdownWhenOffIsNoop(t *testing.T) {
+	r := newRig(t)
+	if err := r.d.Shutdown(); err != nil || r.log.String() != "" {
+		t.Fatalf("err=%v calls=%s", err, r.log)
+	}
+}
+
+// I3: a failed recovery must keep the record, so that `panic` or the next start can retry.
+type failingRecover struct {
+	fakeNet
+	err error
+}
+
+func (f *failingRecover) Recover(p store.PrevState) error { f.log.add("net.recover"); return f.err }
+
+func TestFailedRecoveryKeepsRecord(t *testing.T) {
+	r := newRig(t)
+	fr := &failingRecover{fakeNet: *r.n, err: errors.New("netlink busy")}
+	r.d.n = fr
+	r.st.SavePrev(store.PrevState{Steps: []store.Step{{Kind: "rule"}}})
+	if err := r.d.Recover(); err == nil {
+		t.Fatal("expected the recovery error")
+	}
+	if _, ok, _ := r.st.Prev(); !ok {
+		t.Fatal("the undo record was deleted although recovery failed")
+	}
+	fr.err = nil
+	if err := r.d.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := r.st.Prev(); ok {
+		t.Fatal("record not cleared after a successful retry")
+	}
+}
+
+// I2: peer host names are resolved before the tunnel takes over DNS.
+func TestResolvePeers(t *testing.T) {
+	lookup := func(host string) ([]string, error) {
+		switch host {
+		case "peer.example.net":
+			return []string{"2001:db8::7", "192.0.2.7"}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	got := resolvePeers([]string{
+		"tls://peer.example.net:1234",
+		"wss://peer.example.net:443/path?priority=1",
+		"tls://192.0.2.9:1234",
+		"tls://[2001:db8::9]:1234",
+		"tls://unknown.example.net:1234",
+		"tcp://peer.example.net:80?sni=custom.example.net",
+		"not a uri",
+	}, lookup)
+	want := []string{
+		"tls://192.0.2.7:1234?sni=peer.example.net",
+		"wss://192.0.2.7:443/path?priority=1&sni=peer.example.net",
+		"tls://192.0.2.9:1234",
+		"tls://[2001:db8::9]:1234",
+		"tls://unknown.example.net:1234",
+		"tcp://192.0.2.7:80?sni=custom.example.net",
+		"not a uri",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("peer %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUpResolvesPeersBeforeNet(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	var order []string
+	r.d.Lookup = func(h string) ([]string, error) {
+		order = append(order, "lookup:"+h)
+		return []string{"192.0.2.50"}, nil
+	}
+	p := profile.Profile{V: 1, PrivateKey: "cHJpdmF0ZQ==", ServerKey: "c2VydmVy", ServerYgg: "200:db8::2", Port: 51820,
+		ClientIP4: "192.0.2.10", Peers: []string{"tls://host.example.net:1234"}}
+	args, _ := json.Marshal(map[string]string{"link": p.Link()})
+	r.d.Handle(context.Background(), ipc.Peer{}, ipc.Request{Cmd: "import", Args: args})
+	r.cmd("up")
+	if len(order) != 1 || order[0] != "lookup:host.example.net" || !strings.HasPrefix(r.log.String(), "core.start,net.up") {
+		t.Fatalf("order %v calls %s", order, r.log)
+	}
+	if r.c.gotPeers[0] != "tls://192.0.2.50:1234?sni=host.example.net" {
+		t.Fatalf("peers passed to the core: %v", r.c.gotPeers)
 	}
 }

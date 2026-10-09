@@ -2,7 +2,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -77,8 +76,8 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	log.Print("stopping: undoing network changes")
-	if _, err := d.Handle(context.Background(), ipc.Peer{}, ipc.Request{Cmd: "down"}); err != nil {
-		log.Printf("down: %v", err)
+	if err := d.Shutdown(); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
 	srv.Close()
 }

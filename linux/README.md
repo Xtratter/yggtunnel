@@ -58,7 +58,7 @@ list would show it). Changing the connection is authorised through polkit
 
 While connected: the interface `yggtun0` (the node's Yggdrasil address `/7`, `clientIp4/32`, `clientIp6/128`,
 MTU 1280), default routes in table 51871, two `ip rule` entries (priorities 32763 and 32764), the nftables table
-`inet yggtunnel` that marks the daemon's own traffic so it bypasses the tunnel, and DNS `1.1.1.1` / `8.8.8.8`
+`inet yggtunnel` that marks the daemon's own traffic so it bypasses the tunnel (and masquerades it to the outgoing link's address), and DNS `1.1.1.1` / `8.8.8.8`
 on `yggtun0` through systemd-resolved (`/etc/resolv.conf` is never edited).
 
 Every change is recorded in `/var/lib/yggtunnel/prev.json` before it is made and undone in reverse order on

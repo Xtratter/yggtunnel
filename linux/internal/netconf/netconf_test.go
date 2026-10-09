@@ -1,7 +1,10 @@
 package netconf
 
 import (
+	"net"
 	"net/netip"
+	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -140,3 +143,84 @@ func TestConfigureFailsWithoutCgroup(t *testing.T) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+// A socket opened after Configure (a peer dialled later, a reconnect) must leave through the
+// physical link with that link's source address. The kernel picks the source at connect(),
+// before the packet is marked, so without masquerading the tunnel's address would escape.
+func TestMarkedTrafficLeavesWithPhysicalSourceAddress(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	for _, c := range [][]string{
+		{"link", "add", "lan", "type", "dummy"},
+		{"addr", "add", "198.51.100.2/24", "dev", "lan"},
+		{"link", "set", "lan", "up"},
+		{"route", "add", "default", "via", "198.51.100.1", "dev", "lan"},
+	} {
+		if out, err := exec.Command("ip", c...).CombinedOutput(); err != nil {
+			t.Fatalf("ip %v: %v\n%s", c, err, out)
+		}
+	}
+	f, err := CreateTun("yggtun0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tx := NewTx(func(store.PrevState) error { return nil })
+	if err := Configure(tx, params(t)); err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	// counters after source NAT (priority 200 > srcnat 100) see what really leaves
+	rules := `table inet yggtest {
+	chain post { type filter hook postrouting priority 200; policy accept;
+		oifname "lan" ip saddr 192.0.2.10 counter comment "tunnel"
+		oifname "lan" ip saddr 198.51.100.2 counter comment "physical"
+	}
+}`
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(rules)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("nft: %v\n%s", err, out)
+	}
+	defer exec.Command("nft", "delete", "table", "inet", "yggtest").Run()
+	c, err := net.Dial("udp4", "203.0.113.9:9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Write([]byte("x"))
+	c.Close()
+	out, _ := exec.Command("nft", "list", "table", "inet", "yggtest").CombinedOutput()
+	got := string(out)
+	if !regexp.MustCompile(`saddr 198\.51\.100\.2 counter packets 1 `).MatchString(got) ||
+		!regexp.MustCompile(`saddr 192\.0\.2\.10 counter packets 0 `).MatchString(got) {
+		t.Fatalf("the packet left with the wrong source address:\n%s", got)
+	}
+}
+
+// A rule or route left by an earlier run must not make every later Configure fail with EEXIST.
+func TestConfigureToleratesLeftoverRulesAndRoutes(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	for _, c := range [][]string{
+		{"rule", "add", "priority", "32763", "lookup", "main", "suppress_prefixlength", "0"},
+		{"rule", "add", "priority", "32764", "not", "fwmark", "0x5967", "lookup", "51871"},
+	} {
+		if out, err := exec.Command("ip", c...).CombinedOutput(); err != nil {
+			t.Fatalf("ip %v: %v\n%s", c, err, out)
+		}
+	}
+	f, err := CreateTun("yggtun0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tx := NewTx(func(store.PrevState) error { return nil })
+	if err := Configure(tx, params(t)); err != nil {
+		t.Fatalf("leftover rules blocked Configure: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+}
