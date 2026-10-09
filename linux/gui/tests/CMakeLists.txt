@@ -8,3 +8,4 @@ endfunction()
 
 ygg_test(tst_protocol)
 ygg_test(tst_daemonclient fakedaemon.cpp)
+ygg_test(tst_controller fakedaemon.cpp)
