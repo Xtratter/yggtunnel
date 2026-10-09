@@ -80,7 +80,7 @@ With `killswitch on`, while the tunnel is up, every packet this machine sends th
 `yggtun0` is dropped, so a lost tunnel route can never leak traffic onto the physical link. Always let through:
 loopback, the tunnel itself, the daemon's own traffic (the peers and the server; it is recognised by its
 cgroup), DHCP, IPv6 neighbour discovery, and — unless you run `lan off` — local-network destinations
-(`10/8`, `172.16/12`, `192.168/16`, `169.254/16`, multicast, `fe80::/10`, `fc00::/7`).
+(`10/8`, `172.16/12`, `192.168/16`, `169.254/16`, multicast, limited broadcast, `fe80::/10`, `fc00::/7`).
 
 It is armed after the tunnel is attached and removed by `down`, by a failed `up`, by `panic`, and when
 the daemon stops. The window has the same two switches in the «Protection» card. Check it by hand with

@@ -29,6 +29,8 @@ func (nsNet) Up(tx *netconf.Tx, p netconf.Params, _ []netip.Addr) (*os.File, err
 
 func (nsNet) Recover(prev store.PrevState) error { return netconf.RecoverFrom(prev) }
 
+func (nsNet) Clear() error { return netconf.Clear() }
+
 func (nsNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
 	if !on {
 		return tx.Undo("killswitch")

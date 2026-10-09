@@ -37,6 +37,8 @@ type Core interface {
 type Net interface {
 	Up(tx *netconf.Tx, p netconf.Params, dns []netip.Addr) (*os.File, error)
 	Recover(prev store.PrevState) error
+	// Clear removes every table the daemon may have left, by name (the panic button's safety net).
+	Clear() error
 	// KillSwitch arms (on) or removes (off) the kill switch as a step of tx; arming again replaces it.
 	KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error
 }
@@ -242,12 +244,16 @@ func (d *Daemon) armKillSwitch(s store.Settings) error {
 	return nil
 }
 
+// disarmKillSwitch clears the flag only when the removal worked: a failed removal leaves the table
+// (and its record) in place, and the window must not claim otherwise.
 func (d *Daemon) disarmKillSwitch() error {
-	err := d.n.KillSwitch(d.tx, false, netconf.KSParams{})
+	if err := d.n.KillSwitch(d.tx, false, netconf.KSParams{}); err != nil {
+		return err
+	}
 	d.mu.Lock()
 	d.ksArmed = false
 	d.mu.Unlock()
-	return err
+	return nil
 }
 
 // set changes the settings. While connected the change is applied first and stored only if it
@@ -270,7 +276,7 @@ func (d *Daemon) set(args json.RawMessage) error {
 	if a.AllowLAN != nil {
 		s.AllowLAN = *a.AllowLAN
 	}
-	if d.cur() == Connected {
+	if cur := d.cur(); cur == Connected || cur == Reconnecting {
 		var err error
 		if s.KillSwitch {
 			err = d.armKillSwitch(s)
@@ -324,6 +330,7 @@ func (d *Daemon) panicOff() error {
 		d.setState(Off, "")
 	}
 	errs = append(errs, d.recoverPrev())
+	errs = append(errs, d.n.Clear()) // whatever the records missed
 	return errors.Join(errs...)
 }
 

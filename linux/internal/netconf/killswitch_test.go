@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/Xtratter/yggtunnel/linux/internal/nstest"
 	"github.com/Xtratter/yggtunnel/linux/internal/store"
+	"github.com/google/nftables"
+	"golang.org/x/sys/unix"
 )
 
 // ksEnv builds a namespace with a physical link `lan` (192.168.77.2/24, default via .1), brings the
@@ -319,5 +322,113 @@ func sendUDPFromPortBound(port int, dst, dev string) {
 	}
 	defer c.Close()
 	bindToDevice(c, dev)
+	c.Write([]byte("x"))
+}
+
+// Re-arming (the user toggles "Allow local network" while connected) replaces the table in ONE batch:
+// if that fails, the old table must still be there, so the kill switch never silently disappears.
+func TestKillSwitchReArmFailureKeepsOldTable(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := ksEnv(t, otherCgroup(t), false)
+	defer tx.Rollback()
+	ksFlush = func(*nftables.Conn) error { return errors.New("injected netlink failure") }
+	defer func() { ksFlush = func(c *nftables.Conn) error { return c.Flush() } }()
+	if err := AddKillSwitch(tx, KSParams{IfName: "yggtun0", Mark: 0x5967, AllowLAN: true}); err == nil {
+		t.Fatal("expected the injected failure")
+	}
+	if !KillSwitchActive() {
+		t.Fatal("a failed re-arm removed the kill switch")
+	}
+	ksFlush = func(c *nftables.Conn) error { return c.Flush() }
+	sendUDPBound("192.168.77.50:9", "lan") // the OLD rules (LAN not allowed) still apply
+	if n := dropped(t); n != 1 {
+		t.Fatalf("drop counter %d, want 1 (old rules)", n)
+	}
+}
+
+func TestKillSwitchReArmChangesLAN(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := ksEnv(t, otherCgroup(t), false)
+	defer tx.Rollback()
+	if err := AddKillSwitch(tx, KSParams{IfName: "yggtun0", Mark: 0x5967, AllowLAN: true}); err != nil {
+		t.Fatal(err)
+	}
+	sendUDPBound("192.168.77.50:9", "lan")
+	if n := dropped(t); n != 0 {
+		t.Fatalf("LAN dropped after re-arming with AllowLAN (%d)", n)
+	}
+}
+
+func TestKillSwitchReArmKeepsOneStep(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := ksEnv(t, otherCgroup(t), false)
+	defer tx.Rollback()
+	for i := 0; i < 3; i++ {
+		if err := AddKillSwitch(tx, KSParams{IfName: "yggtun0", Mark: 0x5967, AllowLAN: i%2 == 0}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := tx.Count("killswitch"); n != 1 {
+		t.Fatalf("%d killswitch steps recorded, want 1", n)
+	}
+}
+
+func TestKillSwitchLANIncludesLimitedBroadcast(t *testing.T) {
+	if !nstest.InNetns(t) {
+		return
+	}
+	tx := ksEnv(t, otherCgroup(t), true)
+	defer tx.Rollback()
+	sendBroadcastBound("255.255.255.255:9", "lan")
+	if n := dropped(t); n != 0 {
+		t.Fatalf("limited broadcast dropped although the local network is allowed (%d)", n)
+	}
+}
+
+// A failed undo must keep the step: otherwise the drop table stays behind with no record of it.
+func TestTxUndoKeepsStepWhenUndoFails(t *testing.T) {
+	fail := true
+	runs := 0
+	var last store.PrevState
+	tx := NewTx(func(p store.PrevState) error { last = p; return nil })
+	tx.Do(store.Step{Kind: "killswitch"}, func() error { return nil }, func() error {
+		runs++
+		if fail {
+			return errors.New("netlink busy")
+		}
+		return nil
+	})
+	if err := tx.Undo("killswitch"); err == nil {
+		t.Fatal("expected the undo error")
+	}
+	if !tx.Has("killswitch") || len(last.Steps) != 1 {
+		t.Fatalf("the step was forgotten after a failed undo (record %+v)", last.Steps)
+	}
+	fail = false
+	if err := tx.Rollback(); err != nil || runs != 2 {
+		t.Fatalf("rollback must retry the undo: err=%v runs=%d", err, runs)
+	}
+}
+
+func sendBroadcastBound(dst, dev string) {
+	c, err := net.Dial("udp", dst)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	if uc, ok := c.(*net.UDPConn); ok {
+		if raw, err := uc.SyscallConn(); err == nil {
+			raw.Control(func(fd uintptr) {
+				unix.BindToDevice(int(fd), dev)
+				unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_BROADCAST, 1)
+			})
+		}
+	}
 	c.Write([]byte("x"))
 }

@@ -60,7 +60,25 @@ func (t *Tx) Rollback() error {
 	return errors.Join(errs...)
 }
 
-// Undo undoes the last step of that kind now, forgets it and re-records. It does nothing (and returns
+// Has reports whether a step of that kind is recorded.
+func (t *Tx) Has(kind string) bool { return t.Count(kind) > 0 }
+
+// Count is the number of recorded steps of that kind.
+func (t *Tx) Count(kind string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, s := range t.steps {
+		if s.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// Undo undoes the last step of that kind now and forgets it. If the undo fails the step is KEPT
+// (and recorded), so that Rollback, panic or crash recovery can try again: forgetting a step whose
+// undo failed could leave its changes behind with no record of them. It does nothing (and returns
 // nil) when there is no such step, so it can be called twice.
 func (t *Tx) Undo(kind string) error {
 	t.mu.Lock()
@@ -69,13 +87,12 @@ func (t *Tx) Undo(kind string) error {
 		if t.steps[i].Kind != kind || i >= len(t.undos) {
 			continue
 		}
-		err := t.undos[i]()
+		if err := t.undos[i](); err != nil {
+			return err
+		}
 		t.steps = append(t.steps[:i], t.steps[i+1:]...)
 		t.undos = append(t.undos[:i], t.undos[i+1:]...)
-		if rerr := t.rec(store.PrevState{Steps: t.steps}); rerr != nil {
-			err = errors.Join(err, rerr)
-		}
-		return err
+		return t.rec(store.PrevState{Steps: t.steps})
 	}
 	return nil
 }

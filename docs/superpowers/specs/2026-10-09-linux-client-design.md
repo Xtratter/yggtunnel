@@ -89,8 +89,9 @@ finds unfinished state and rolls it back.
 ### Kill switch
 
 nftables rule drops outgoing traffic not going through `yggtun0`, except: peers and server, loopback,
-local network (configurable), DHCP. It stays during `Reconnecting` and is removed only by explicit
-`down` (otherwise an outage would leak direct traffic). Escape hatch: `yggtunnelctl panic` and a
+local network (configurable), DHCP. It stays during `Reconnecting` and is removed by explicit
+`down` (otherwise an outage would leak direct traffic). It is also removed when the daemon dies (`ExecStopPost`
+runs `yggtunneld --recover-only`) and when `up` fails: a crash must never lock the user out of the network. Escape hatch: `yggtunnelctl panic` and a
 «Disable everything» button remove all our routes, rules and DNS settings.
 
 ### Split routing

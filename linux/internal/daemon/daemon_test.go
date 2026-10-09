@@ -66,6 +66,7 @@ func (f *fakeCore) Log() string    { return "log line" }
 
 type fakeNet struct {
 	ksErr     error
+	ksUndoErr error // makes removing the kill switch fail
 	log       *calls
 	failAfter int // steps that succeed before Up fails (-1: never fail)
 	params    netconf.Params
@@ -100,8 +101,10 @@ func (f *fakeNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error 
 			f.log.add(fmt.Sprintf("net.ks:on(lan=%v)", p.AllowLAN))
 			return f.ksErr
 		},
-		func() error { f.log.add("undo.ks"); return nil })
+		func() error { f.log.add("undo.ks"); return f.ksUndoErr })
 }
+
+func (f *fakeNet) Clear() error { f.log.add("net.clear"); return nil }
 
 func (f *fakeNet) Recover(p store.PrevState) error {
 	f.log.add("net.recover")
@@ -309,12 +312,12 @@ func TestDownWhenOffIsNoop(t *testing.T) {
 	}
 }
 
-func TestPanicWhenOffIsNoop(t *testing.T) {
+func TestPanicWhenOffOnlyClearsByName(t *testing.T) {
 	r := newRig(t)
 	if _, err := r.cmd("panic"); err != nil {
 		t.Fatal(err)
 	}
-	if r.log.String() != "" {
+	if r.log.String() != "net.clear" { // nothing recorded, nothing running: only the by-name safety net runs
 		t.Fatalf("calls %s", r.log)
 	}
 }
@@ -325,7 +328,7 @@ func TestPanicRollsBackFromPrevFile(t *testing.T) {
 	if _, err := r.cmd("panic"); err != nil {
 		t.Fatal(err)
 	}
-	if r.log.String() != "net.recover" || len(r.n.recovered.Steps) != 1 {
+	if r.log.String() != "net.recover,net.clear" || len(r.n.recovered.Steps) != 1 {
 		t.Fatalf("calls %s recovered %+v", r.log, r.n.recovered)
 	}
 	if _, ok, _ := r.st.Prev(); ok {
@@ -792,5 +795,55 @@ func TestSetFailureWhileConnectedKeepsOldSetting(t *testing.T) {
 	}
 	if r.status(t).Settings.KillSwitch {
 		t.Fatal("the setting was stored although it could not be applied")
+	}
+}
+
+// A failed removal must not make the window claim "off" while the table is still there.
+func TestFailedDisarmKeepsArmedAndRetriesOnDown(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.cmd("up")
+	r.n.ksUndoErr = errors.New("netlink busy")
+	if err := r.set(t, `{"killSwitch":false}`); err == nil {
+		t.Fatal("expected the removal error")
+	}
+	s := r.status(t)
+	if !s.KillSwitchActive || !s.Settings.KillSwitch {
+		t.Fatalf("active=%v settings=%+v: a failed removal must leave both as they were", s.KillSwitchActive, s.Settings)
+	}
+	r.n.ksUndoErr = nil
+	r.log.l = nil
+	r.cmd("down")
+	if !strings.Contains(r.log.String(), "undo.ks") {
+		t.Fatalf("down did not retry the removal: %s", r.log)
+	}
+}
+
+func TestFailedReArmKeepsArmedFlag(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.set(t, `{"killSwitch":true}`)
+	r.cmd("up")
+	r.n.ksErr = errors.New("netlink busy")
+	if err := r.set(t, `{"allowLan":false}`); err == nil {
+		t.Fatal("expected the error")
+	}
+	if !r.status(t).KillSwitchActive {
+		t.Fatal("the old table is still there: the status must still say active")
+	}
+}
+
+func TestSetWhileReconnectingApplies(t *testing.T) {
+	r := newRig(t)
+	r.importSample(t)
+	r.cmd("up")
+	r.d.setState(Reconnecting, "")
+	r.log.l = nil
+	if err := r.set(t, `{"killSwitch":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if r.log.String() != "net.ks:on(lan=true)" {
+		t.Fatalf("calls %s", r.log)
 	}
 }

@@ -59,6 +59,9 @@ func (RealNet) Up(tx *netconf.Tx, p netconf.Params, servers []netip.Addr) (*os.F
 	return f, nil
 }
 
+// Clear removes the daemon's nftables tables by name.
+func (RealNet) Clear() error { return netconf.Clear() }
+
 // KillSwitch arms or removes the kill switch table as a step of tx.
 func (RealNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
 	if !on {
@@ -121,6 +124,11 @@ func (DryNet) KillSwitch(tx *netconf.Tx, on bool, p netconf.KSParams) error {
 	return tx.Do(store.Step{Kind: "dry-killswitch"},
 		func() error { log.Printf("dry-run: would arm the kill switch (lan=%v)", p.AllowLAN); return nil },
 		func() error { log.Printf("dry-run: would remove the kill switch"); return nil })
+}
+
+func (DryNet) Clear() error {
+	log.Print("dry-run: would remove the daemon's nftables tables by name")
+	return nil
 }
 
 func (DryNet) Recover(prev store.PrevState) error {
